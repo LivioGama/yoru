@@ -101,7 +101,9 @@ _cors_origins = [
     o.strip()
     for o in os.environ.get(
         "CORS_ALLOWED_ORIGINS",
-        "http://localhost:5173,http://localhost:3000",
+        # 5173 = dashboard dev, 5174 = marketing dev (public /s/:id fetches
+        # the unauth endpoint from the marketing origin), 3000 = legacy.
+        "http://localhost:5173,http://localhost:5174,http://localhost:3000",
     ).split(",")
     if o.strip()
 ]
