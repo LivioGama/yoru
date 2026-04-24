@@ -374,6 +374,11 @@ export interface ShareResponse {
   public_url: string | null
 }
 
+export interface ShareConsent {
+  consented: boolean
+  at: string | null
+}
+
 /** Flip a session public. Idempotent server-side — re-POST returns the
  *  same canonical URL. 404 on cross-user, 401 on unauth. */
 export async function shareSession(id: string): Promise<ShareResponse> {
@@ -389,6 +394,17 @@ export async function revokeShareSession(id: string): Promise<ShareResponse> {
     `/sessions/${encodeURIComponent(id)}/share/revoke`,
     { method: "POST" },
   )
+}
+
+/** Read the caller's public-share consent state (set once, never cleared). */
+export async function getShareConsent(): Promise<ShareConsent> {
+  return apiFetch<ShareConsent>("/account/share-consent")
+}
+
+/** Mark the caller as having acknowledged the public-share disclosure.
+ *  Idempotent — returns the original stamp on subsequent calls. */
+export async function postShareConsent(): Promise<ShareConsent> {
+  return apiFetch<ShareConsent>("/account/share-consent", { method: "POST" })
 }
 
 // Billing — mirror of C1 backend shapes (BILLING-PLANS-V1.md §3).

@@ -172,6 +172,13 @@ from apps.api.api.routers.receipt.public_sessions_router import PublicSessionsRo
 public_sessions_router = PublicSessionsRouter()
 app.include_router(public_sessions_router.get_router(), prefix="/api/v1")
 
+# Issue #79 — per-user share-disclosure consent (GET + POST).
+# Persists the one-time "I understand what public means" ack on the
+# users row so it travels with the account instead of per-device state.
+from apps.api.api.routers.receipt.consent_router import ShareConsentRouter  # noqa: E402
+share_consent_router = ShareConsentRouter()
+app.include_router(share_consent_router.get_router(), prefix="/api/v1")
+
 summary_router = SummaryRouter()
 summary_router.initialize_services()
 app.include_router(summary_router.get_router(), prefix="/api/v1")

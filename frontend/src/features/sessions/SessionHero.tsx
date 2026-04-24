@@ -1,8 +1,10 @@
 import { useCallback, useState } from "react"
-import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { SessionHeroView, type SessionDetail } from "@receipt/ui"
 import {
   exportSessionTrail,
+  getShareConsent,
+  postShareConsent,
   postSummary,
   revokeShareSession,
   shareSession,
@@ -21,15 +23,22 @@ interface SessionHeroProps {
 const PUBLIC_SITE =
   (import.meta.env.VITE_PUBLIC_SITE_URL as string | undefined) ?? "https://yoru.sh"
 
-// localStorage flag: first-time share confirm (#79 AC — one-time warning).
-// Cleared by the user via devtools if they want to re-see the warning.
-const SHARE_CONFIRM_KEY = "yoru.share.confirmed"
+const CONSENT_QUERY_KEY = ["account", "share-consent"] as const
 
 export function SessionHero({ session }: SessionHeroProps) {
   const [exporting, setExporting] = useState(false)
   const [sharing, setSharing] = useState(false)
   const [shareModalOpen, setShareModalOpen] = useState(false)
   const queryClient = useQueryClient()
+
+  // Pull the consent state on mount so we know whether to show the modal
+  // when the user clicks "share". Lightweight endpoint — safe to poll on
+  // every session page load; react-query dedupes repeats.
+  const consentQuery = useQuery({
+    queryKey: CONSENT_QUERY_KEY,
+    queryFn: getShareConsent,
+    staleTime: 60_000, // consent doesn't change often; cache for a minute
+  })
 
   async function onExport() {
     setExporting(true)
@@ -42,8 +51,9 @@ export function SessionHero({ session }: SessionHeroProps) {
     }
   }
 
-  // Shared logic: actually call the share/revoke API. Split from the click
-  // handler so the modal's "accept" can call this without re-opening itself.
+  // Shared: perform the actual POST /share or /share/revoke. Split from
+  // onToggleShare so the modal's accept flow can call it after POSTing
+  // consent, without re-opening the modal.
   const commitShare = useCallback(
     async (goingPublic: boolean) => {
       setSharing(true)
@@ -74,18 +84,16 @@ export function SessionHero({ session }: SessionHeroProps) {
     [session.id, queryClient],
   )
 
-  // Top-level click: branch on current state + consent flag. Revoke is
-  // frictionless (de-risking action); share asks for consent the first time.
   async function onToggleShare() {
     const currentlyPublic = Boolean(session.is_public)
+    // Revoke path — no consent check, always frictionless.
     if (currentlyPublic) {
       await commitShare(false)
       return
     }
-    const alreadyConfirmed =
-      typeof window !== "undefined" &&
-      window.localStorage?.getItem(SHARE_CONFIRM_KEY) === "1"
-    if (alreadyConfirmed) {
+    // Share path — consent is server-side now. If the query hasn't loaded
+    // yet, treat as "not consented" (the modal is the safer default).
+    if (consentQuery.data?.consented) {
       await commitShare(true)
       return
     }
@@ -94,9 +102,23 @@ export function SessionHero({ session }: SessionHeroProps) {
 
   async function onModalConfirm() {
     try {
-      window.localStorage?.setItem(SHARE_CONFIRM_KEY, "1")
-    } catch {
-      // quota / privacy-mode — no-op. Worst case user sees the modal again.
+      await postShareConsent()
+      // Optimistically update so a second share on the same page load
+      // doesn't re-trigger the modal.
+      queryClient.setQueryData(CONSENT_QUERY_KEY, {
+        consented: true,
+        at: new Date().toISOString(),
+      })
+    } catch (err) {
+      toast.error(
+        "Couldn't save consent",
+        err instanceof Error ? err.message : String(err),
+      )
+      // Don't proceed with the share — the user explicitly clicked "Make
+      // public" but the consent write failed. Closing would be worse UX
+      // (they think it worked and the session isn't public). Leave the
+      // modal open; they can retry or cancel.
+      return
     }
     setShareModalOpen(false)
     await commitShare(true)
@@ -162,8 +184,9 @@ export function SessionHero({ session }: SessionHeroProps) {
           </dl>
 
           <p className="mt-3 text-caption text-ink-muted">
-            You can revoke at any time from this same button. Revocation is
-            immediate — the public URL will return 404.
+            You&apos;ll only be asked once per account. You can revoke any
+            individual share at any time — revocation is immediate and the
+            public URL will return 404.
           </p>
 
           <div className="mt-5 flex justify-end gap-2">

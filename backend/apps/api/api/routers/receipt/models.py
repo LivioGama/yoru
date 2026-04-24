@@ -196,6 +196,14 @@ class User(SQLModel, table=True):
 
     email: str = Field(primary_key=True, max_length=320)
     welcome_email_sent_at: Optional[datetime] = Field(default=None)
+    # Issue #79 — timestamp of the one-time public-share disclosure consent.
+    # NULL means "never consented"; any timestamp means "consented at least
+    # once". Once set we never clear it — the user can revoke a specific
+    # share, but the acknowledgment that they understand what "public"
+    # means stays true forever. Previously stored in localStorage + a local
+    # ~/.config/yoru/share-confirmed file; moved server-side so it follows
+    # the account across browsers and machines.
+    share_consent_given_at: Optional[datetime] = Field(default=None)
 
 
 class PasswordResetToken(SQLModel, table=True):
@@ -545,6 +553,16 @@ class PublicEventOut(SQLModel):
     group_key: Optional[str] = None
     output: Optional[str] = None
     tool_input: Optional[dict] = None
+
+
+class ShareConsentOut(SQLModel):
+    """Response for GET and POST /api/v1/account/share-consent (#79).
+
+    Callers check `consented` before prompting the user to confirm. `at`
+    is the UTC timestamp of the first consent (useful for audit screens
+    later; safe to ignore in the UI)."""
+    consented: bool
+    at: Optional[datetime] = None
 
 
 class PublicSessionOut(SQLModel):
