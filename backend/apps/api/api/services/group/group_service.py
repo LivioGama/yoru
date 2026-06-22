@@ -194,12 +194,19 @@ class UserGroupService:
             if is_active is not None:
                 filters["is_active"] = is_active
 
-            # Single query with subquery counts (replaces N+1 queries)
+            # Read the base table (the `_with_counts` view is Postgres-only) and
+            # enrich member_count per group via the provider-agnostic store.
             all_groups = self.supabase.query_records(
-                "user_groups_with_counts",
+                "user_groups",
                 filters=filters,
                 correlation_id=correlation_id,
             )
+            for g in all_groups:
+                g["member_count"] = self.supabase.count_records(
+                    "user_group_members",
+                    filters={"group_id": g.get("id")},
+                    correlation_id=correlation_id,
+                )
 
             # Sort by created_at descending
             all_groups.sort(
@@ -346,9 +353,10 @@ class UserGroupService:
             if not group.get("is_active", True):
                 raise ValidationError("Cannot add members to inactive group", correlation_id)
 
-            # Verify user exists
+            # Verify user exists (profiles is the provider-agnostic identity
+            # table; the old `auth.users` lookup only existed under Supabase).
             user = self.supabase.get_record(
-                "auth.users", str(data.user_id), correlation_id=correlation_id
+                "profiles", str(data.user_id), correlation_id=correlation_id
             )
             if not user:
                 raise ValidationError("User not found", correlation_id)
@@ -365,10 +373,12 @@ class UserGroupService:
                 )
 
             # Add member
+            from datetime import datetime, timezone
             member_data = {
                 "group_id": str(group_id),
                 "user_id": str(data.user_id),
                 "added_by": str(admin_id),
+                "added_at": datetime.now(timezone.utc).isoformat(),
             }
             result = self.supabase.insert_record(
                 "user_group_members", member_data, correlation_id=correlation_id

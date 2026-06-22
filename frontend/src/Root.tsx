@@ -22,6 +22,7 @@ import { WorkspacesPage } from "./pages/WorkspacesPage"
 import { SessionDetailPage } from "./pages/SessionDetailPage"
 import { SessionsListPage } from "./pages/SessionsListPage"
 import { SetupPage } from "./pages/SetupPage"
+import { TeamsPage } from "./pages/TeamsPage"
 import { SignInPage } from "./pages/SignInPage"
 import { SignUpPage } from "./pages/SignUpPage"
 import { SmokePage } from "./pages/SmokePage"
@@ -53,6 +54,7 @@ const router = createBrowserRouter([
       { path: "/settings/billing", element: <BillingPage />, errorElement: <ErrorPage /> },
       { path: "/settings/organizations", element: <OrganizationsPage />, errorElement: <ErrorPage /> },
       { path: "/settings/profile", element: <ProfilePage />, errorElement: <ErrorPage /> },
+      { path: "/settings/teams", element: <TeamsPage />, errorElement: <ErrorPage /> },
       { path: "/settings/tokens", element: <TokensPage />, errorElement: <ErrorPage /> },
       { path: "/settings/routing", element: <RoutingPage />, errorElement: <ErrorPage /> },
       { path: "/settings/workspaces", element: <WorkspacesPage />, errorElement: <ErrorPage /> },

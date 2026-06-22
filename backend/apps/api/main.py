@@ -227,6 +227,10 @@ app.include_router(AdminGroupsRouter().get_router(), prefix="/api/v1")
 app.include_router(AdminWebhooksRouter().get_router(), prefix="/api/v1")
 app.include_router(NotificationAdminRouter().get_router(), prefix="/api/v1")
 
+# Self-host control panel: admin manages users + SMTP without a cloud console.
+from apps.api.api.routers.admin.instance.router import InstanceAdminRouter  # noqa: E402
+app.include_router(InstanceAdminRouter().get_router(), prefix="/api/v1")
+
 dashboard_router = DashboardRouter()
 app.include_router(dashboard_router.get_router(), prefix="/api/v1")
 
