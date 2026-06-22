@@ -59,51 +59,72 @@ from .summary_router import _build_summary
 _route_logger = logging.getLogger("apps.api.receipt.routing")
 
 
+def _parse_git_remote(git_remote: str | None) -> tuple[str, str, str] | None:
+    """Parse a git remote URL into (host, owner, repo). Handles both
+    `git@github.com:Owner/Repo.git` and `https://github.com/Owner/Repo`."""
+    if not git_remote:
+        return None
+    s = git_remote.strip()
+    if s.endswith(".git"):
+        s = s[:-4]
+    if s.startswith("git@"):
+        rest = s[4:]
+        if ":" not in rest:
+            return None
+        host, path = rest.split(":", 1)
+    else:
+        m = re.match(r"(?:https?|ssh)://(?:[^@/]+@)?([^/]+)/(.+)", s)
+        if not m:
+            return None
+        host, path = m.group(1), m.group(2)
+    parts = [p for p in path.split("/") if p]
+    if len(parts) < 2:
+        return None
+    return host, parts[-2], parts[-1]
+
+
 def _resolve_workspace(user: str, cwd: str | None, git_remote: str | None) -> str | None:
-    """Resolve the target workspace_id for this event via Supabase.
+    """Resolve the target workspace_id for this event, provider-agnostic.
 
-    Priority order (server-side in resolve_workspace SQL RPC):
-      1. workspace_repos exact match on (host, owner, repo) parsed from git_remote
-      2. route_rules match on cwd or git_remote globs (escape-hatch)
-      3. user's personal workspace (fallback, always succeeds if user has one)
+      1. workspace_repos exact match on (host, owner, repo) from git_remote
+      2. route_rules match on cwd / git_remote substring (user escape-hatch)
+      3. None → session lands unrouted ("Personal"); movable from the dashboard.
 
-    Returns None only when Supabase is unreachable / user unknown — ingestion
-    never blocks on routing; the session lands with workspace_id=NULL and the
-    user can move it from the dashboard later.
+    Runs against the configured data store (local or Supabase) — no RPC, so it
+    works on a self-hosted instance.
     """
-    supabase_url = os.environ.get("SUPABASE_URL", "").rstrip("/")
-    anon = os.environ.get("SUPABASE_ANON_KEY", "")
-    if not supabase_url or not anon:
-        return None
     try:
-        resp = httpx.post(
-            f"{supabase_url}/rest/v1/rpc/resolve_workspace",
-            headers={
-                "apikey": anon,
-                "Authorization": f"Bearer {anon}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "p_user_email": user,
-                "p_cwd": cwd,
-                "p_git_remote": git_remote,
-            },
-            timeout=2.0,
-        )
-    except (httpx.HTTPError, httpx.TimeoutException) as exc:
-        _route_logger.warning("workspace_rpc_failed err=%s", type(exc).__name__)
-        return None
-    if resp.status_code >= 400:
-        _route_logger.warning(
-            "workspace_rpc_status code=%s body=%s",
-            resp.status_code, resp.text[:200],
-        )
-        return None
-    try:
-        target = resp.json()
+        from libs.datastore import get_data_store
+        store = get_data_store()
     except Exception:
         return None
-    return target if isinstance(target, str) and target else None
+
+    parsed = _parse_git_remote(git_remote)
+    if parsed:
+        host, owner, repo = parsed
+        try:
+            repos = store.query_records("workspace_repos", filters={"host": host})
+        except Exception:
+            repos = []
+        for r in repos:
+            if (str(r.get("owner", "")).lower() == owner.lower()
+                    and str(r.get("repo", "")).lower() == repo.lower()):
+                ws = r.get("workspace_id")
+                if ws:
+                    return str(ws)
+
+    # route_rules escape-hatch — caller-scoped substring match on cwd/remote.
+    try:
+        rules = store.query_records("route_rules", filters={"enabled": True})
+    except Exception:
+        rules = []
+    haystacks = [h for h in (cwd, git_remote) if h]
+    for rule in sorted(rules, key=lambda x: x.get("priority", 0)):
+        pat = rule.get("match_pattern")
+        target = rule.get("target_workspace_id") or rule.get("workspace_id")
+        if pat and target and any(pat in h for h in haystacks):
+            return str(target)
+    return None
 
 # tool_name → kind classifier (closes gap #3; see vault/EVENTIN-V1-SPEC.md §2)
 _FILE_CHANGE_TOOLS: frozenset[str] = frozenset({"Write", "Edit", "MultiEdit", "NotebookEdit"})

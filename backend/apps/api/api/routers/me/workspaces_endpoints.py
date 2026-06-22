@@ -221,7 +221,14 @@ async def list_workspace_repos(user_token: str, workspace_id: str) -> list[Works
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"list repos failed: {exc}") from exc
-    return [WorkspaceRepoOut(**r) for r in (rows or [])]
+    out = []
+    for r in (rows or []):
+        # `full_name` is a generated column in Postgres; the local store has no
+        # generated columns, so derive it from owner/repo when absent.
+        if not r.get("full_name"):
+            r = {**r, "full_name": f"{r.get('owner', '')}/{r.get('repo', '')}"}
+        out.append(WorkspaceRepoOut(**r))
+    return out
 
 
 async def add_workspace_repo(
@@ -234,6 +241,8 @@ async def add_workspace_repo(
         "owner": body.owner,
         "repo": body.repo,
         "added_by": str(user_id),
+        # Generated in Postgres; set explicitly for the local store.
+        "full_name": f"{body.owner}/{body.repo}",
     }
     try:
         resp = sb.client.table("workspace_repos").insert(payload).execute()
@@ -248,7 +257,10 @@ async def add_workspace_repo(
     rows = getattr(resp, "data", None) or []
     if not rows:
         raise HTTPException(status_code=500, detail="insert returned no row")
-    return WorkspaceRepoOut(**rows[0])
+    r = rows[0]
+    if not r.get("full_name"):
+        r = {**r, "full_name": f"{r.get('owner', '')}/{r.get('repo', '')}"}
+    return WorkspaceRepoOut(**r)
 
 
 async def remove_workspace_repo(

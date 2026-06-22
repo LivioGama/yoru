@@ -1,8 +1,7 @@
 import { memo } from "react"
 import { Link, useSearchParams } from "react-router-dom"
 import type { Session } from "../../types/receipt"
-// formatCost intentionally unused pre-launch — cost column hidden (see ROADMAP.md).
-import { formatDuration, formatRelative } from "../../lib/format"
+import { formatCost, formatDuration, formatRelative } from "../../lib/format"
 import { RedFlagBadge } from "./RedFlagBadge"
 
 interface SessionRowProps {
@@ -62,7 +61,12 @@ function SessionRowImpl({ session, gridCols, workspaceName }: SessionRowProps) {
       <div className={cellCls + " font-mono text-caption tabular-nums text-ink-muted"}>
         {session.tool_count}
       </div>
-      {/* cost cell hidden pre-launch (see ROADMAP.md) */}
+      <div
+        className={cellCls + " font-mono text-caption tabular-nums text-ink-muted"}
+        title={`${(session.tokens_input ?? 0).toLocaleString()} in · ${(session.tokens_output ?? 0).toLocaleString()} out`}
+      >
+        {session.cost_usd ? formatCost(session.cost_usd) : "—"}
+      </div>
       <div className={cellCls}>
         {session.flags.length === 0 ? (
           <span className="font-mono text-caption text-ink-faint">—</span>

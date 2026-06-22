@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { apiFetch } from "../lib/api"
+import { apiFetch, getGithubStatus, connectGithub, disconnectGithub } from "../lib/api"
 import { toast } from "../components/Toaster"
 
 interface UserResponse {
@@ -182,7 +182,61 @@ export function ProfilePage() {
           </div>
         </form>
       )}
+
+      <GithubConnectCard />
     </div>
+  )
+}
+
+function GithubConnectCard() {
+  const qc = useQueryClient()
+  const status = useQuery({ queryKey: ["me", "github"], queryFn: getGithubStatus, retry: 0 })
+  const [pat, setPat] = useState("")
+  const [err, setErr] = useState<string | null>(null)
+  const connect = useMutation({
+    mutationFn: () => connectGithub({ provider_token: pat.trim() }),
+    onSuccess: () => { setPat(""); setErr(null); qc.invalidateQueries({ queryKey: ["me", "github"] }) },
+    onError: (e: Error) => setErr(e.message.includes("401") ? "GitHub rejected that token." : e.message),
+  })
+  const disconnect = useMutation({
+    mutationFn: disconnectGithub,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["me", "github"] }),
+  })
+  const connected = status.data?.connected
+
+  return (
+    <section className="rounded border border-rule bg-surface p-5">
+      <h2 className="font-mono text-sm font-semibold text-ink">GitHub</h2>
+      <p className="mt-1 text-caption text-ink-muted">
+        {connected
+          ? `Connected as ${status.data?.github_login ?? "?"}.`
+          : "Connect with a Personal Access Token (repo scope) to map repos to workspaces. No OAuth app or cloud needed."}
+      </p>
+      {connected ? (
+        <button onClick={() => disconnect.mutate()} className="mt-3 rounded border border-rule px-2 py-1 text-caption text-ink-muted hover:bg-sunken">
+          Disconnect
+        </button>
+      ) : (
+        <form onSubmit={(e) => { e.preventDefault(); connect.mutate() }} className="mt-3 flex flex-wrap items-end gap-2">
+          <label className="block min-w-[18rem] flex-1">
+            <span className="font-mono text-micro uppercase tracking-wider text-ink-faint">Personal Access Token</span>
+            <input
+              type="password" value={pat} onChange={(e) => setPat(e.target.value)} required minLength={20}
+              placeholder="ghp_…"
+              className="mt-1 w-full rounded border border-rule bg-paper px-3 py-2 font-mono text-sm text-ink outline-none focus-visible:ring-2 focus-visible:ring-accent-500"
+            />
+          </label>
+          <button type="submit" disabled={connect.isPending} className="rounded bg-accent-500 px-3 py-2 text-sm font-medium text-primary-950 hover:bg-accent-400 disabled:opacity-50">
+            {connect.isPending ? "Connecting…" : "Connect"}
+          </button>
+          {err && <p className="w-full text-caption text-flag-env">{err}</p>}
+          <a href="https://github.com/settings/tokens/new?scopes=repo&description=Yoru" target="_blank" rel="noreferrer"
+             className="w-full text-micro text-accent-600 underline-offset-2 hover:underline">
+            → create a token on GitHub
+          </a>
+        </form>
+      )}
+    </section>
   )
 }
 

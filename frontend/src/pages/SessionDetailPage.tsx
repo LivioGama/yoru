@@ -5,6 +5,7 @@ import { ApiError, getSession, verifySession, type VerifyResult } from "../lib/a
 import type { SessionDetail } from "../types/receipt"
 import { SessionHero } from "../features/sessions/SessionHero"
 import { FileChangedRail } from "../features/sessions/FileChangedRail"
+import { CostSparkline } from "../features/sessions/CostSparkline"
 import { Timeline } from "../features/sessions/Timeline"
 
 export function SessionDetailPage() {
@@ -62,6 +63,7 @@ function Receipt({ session }: { session: SessionDetail }) {
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
       <main className="min-w-0 space-y-6">
         <SessionHero session={session} />
+        <CostPanel session={session} />
         <IntegrityBadge sessionId={session.id} />
         <section
           aria-label="Timeline"
@@ -76,6 +78,20 @@ function Receipt({ session }: { session: SessionDetail }) {
 }
 
 function noop() {}
+
+function CostPanel({ session }: { session: SessionDetail }) {
+  const inTok = session.tokens_input ?? 0
+  const outTok = session.tokens_output ?? 0
+  return (
+    <div className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-sm border border-rule bg-surface px-4 py-3">
+      <span className="font-mono text-micro uppercase tracking-wider text-ink-faint">Cost</span>
+      <CostSparkline events={session.events ?? []} totalUsd={session.cost_usd ?? 0} />
+      <span className="font-mono text-caption text-ink-muted tabular-nums">
+        {inTok.toLocaleString()} in · {outTok.toLocaleString()} out tokens
+      </span>
+    </div>
+  )
+}
 
 function IntegrityBadge({ sessionId }: { sessionId: string }) {
   const [state, setState] = useState<{ loading: boolean; result: VerifyResult | null }>({ loading: false, result: null })

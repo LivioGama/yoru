@@ -246,6 +246,8 @@ async def auto_route_repos(
                 "owner": owner,
                 "repo": repo,
                 "added_by": str(user_id),
+                # Generated column in Postgres; set explicitly for the local store.
+                "full_name": f"{owner}/{repo}",
             }).execute()
             added += 1
         except Exception as exc:

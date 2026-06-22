@@ -9,10 +9,10 @@ interface SessionsTableProps {
 
 // Shared responsive grid template — every row (header + data) uses the same.
 // Literal class strings so Tailwind JIT sees them.
-// Phase W4: added a Workspace column between User and Started.
-// Cost column hidden pre-launch (see ROADMAP.md) — data still flows on Session.
+// Phase W4: Workspace column between User and Started. Cost column added back
+// (tokens/cost flow from the transcript tailer).
 const GRID_COLS =
-  "sm:grid sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,0.5fr)_minmax(0,1.5fr)]"
+  "sm:grid sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,0.5fr)_minmax(0,0.8fr)_minmax(0,1.5fr)]"
 
 const headerCellCls =
   "px-3 py-2 text-left font-mono text-micro uppercase tracking-wider text-ink-faint"
@@ -30,7 +30,7 @@ export function SessionsTable({ sessions, workspaceNameById }: SessionsTableProp
         <div className={headerCellCls}>Started</div>
         <div className={headerCellCls}>Duration</div>
         <div className={headerCellCls}>Tools</div>
-        {/* Cost column hidden pre-launch (see ROADMAP.md). */}
+        <div className={headerCellCls}>Cost</div>
         <div className={headerCellCls}>Flags</div>
       </div>
       <ul role="list" className="divide-y divide-rule">

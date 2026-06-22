@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from "react"
 import { Link, Navigate, useLocation, useSearchParams } from "react-router-dom"
 import { signin, AuthError } from "../lib/auth-api"
 import { getSetupStatus } from "../lib/setup-api"
+import { useInstanceConfig } from "../lib/config"
 import { useSession } from "../auth/useSession"
 import { GithubOAuthButton } from "../auth/GithubOAuthButton"
 
@@ -23,6 +24,10 @@ function friendlyError(err: unknown): string {
 
 export function SignInPage() {
   const { user, loading, refresh } = useSession()
+  const config = useInstanceConfig()
+  // GitHub OAuth is Supabase-backed — hide it on a local self-host instance
+  // where it can't work (capture doesn't need it; git info comes from the hook).
+  const githubAvailable = config.auth_provider === "supabase"
   const location = useLocation() as { state?: { from?: string } }
   const from = location.state?.from ?? null
   const [searchParams] = useSearchParams()
@@ -103,15 +108,18 @@ export function SignInPage() {
           </div>
         )}
 
-        <div className="mt-6">
-          <GithubOAuthButton />
-        </div>
-
-        <div className="my-5 flex items-center gap-3">
-          <span className="h-px flex-1 bg-rule" aria-hidden="true" />
-          <span className="font-mono text-micro uppercase tracking-wider text-ink-faint">or</span>
-          <span className="h-px flex-1 bg-rule" aria-hidden="true" />
-        </div>
+        {githubAvailable && (
+          <>
+            <div className="mt-6">
+              <GithubOAuthButton />
+            </div>
+            <div className="my-5 flex items-center gap-3">
+              <span className="h-px flex-1 bg-rule" aria-hidden="true" />
+              <span className="font-mono text-micro uppercase tracking-wider text-ink-faint">or</span>
+              <span className="h-px flex-1 bg-rule" aria-hidden="true" />
+            </div>
+          </>
+        )}
 
         <form onSubmit={onSubmit} className="space-y-3">
           <label className="block">
