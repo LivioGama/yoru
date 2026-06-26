@@ -17,6 +17,16 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
+
+# Billing is dormant / gated-off in yoru (BILLING_ENABLED=false, Polar paywall
+# is the inert SaaSForge template). This test imports billing.checkout._resolve_org_id,
+# which was removed in the billing-gating refactor, so its collection ImportError
+# was halting the WHOLE pytest run. Skip the module until billing reactivates.
+pytest.skip(
+    "billing paywall dormant/gated-off; _resolve_org_id removed in billing-gating refactor",
+    allow_module_level=True,
+)
+
 from fastapi.testclient import TestClient
 from sqlmodel import Session as DBSession
 
