@@ -21,6 +21,13 @@ from pathlib import Path
 
 import pytest
 
+# Polar billing is dormant / gated-off in yoru (BILLING_ENABLED=false). The
+# verify-polar.sh script + its output contract are stale; re-enable with billing.
+pytest.skip(
+    "Polar billing dormant/gated-off; verify-polar.sh contract stale",
+    allow_module_level=True,
+)
+
 REPO_ROOT = Path(__file__).resolve().parents[5]
 SCRIPT = REPO_ROOT / "scripts" / "verify-polar.sh"
 

@@ -90,10 +90,10 @@ def test_post_generates_and_persists(client, db_session, alice_headers):
 
     summary: str = body["summary"]
     lines = summary.split("\n")
-    assert len(lines) == 3
+    # 2-line format: tokens/cost line removed pre-launch (lives in TokenPanel).
+    assert len(lines) == 2
     assert lines[0] == "3 tools across 2 files in 150s."
-    assert lines[1] == "Tokens: 100\u219250  Cost: $1.50."
-    assert lines[2] == "Flags: none."
+    assert lines[1] == "Flags: none."
 
     # GET after POST returns the persisted string.
     r2 = client.get("/api/v1/sessions/s-gen/summary", headers=alice_headers)
@@ -134,8 +134,7 @@ def test_post_overwrites_on_resubmit(client, db_session, alice_headers):
 
     lines = second.split("\n")
     assert lines[0] == "9 tools across 4 files in 150s."
-    assert lines[1] == "Tokens: 500\u2192200  Cost: $2.50."
-    assert lines[2] == "Flags: secret_aws, shell_rm."
+    assert lines[1] == "Flags: secret_aws, shell_rm."
 
     # GET returns the overwritten (second) summary.
     r3 = client.get("/api/v1/sessions/s-ov/summary", headers=alice_headers)
@@ -176,12 +175,8 @@ def test_flags_joined_with_comma_space_and_period(client, db_session, alice_head
     summary = r.json()["summary"]
     lines = summary.split("\n")
 
-    # line 2: cost must render with a dollar sign + exactly 2 decimals.
-    assert "$0.10." in lines[1]
-    assert "Cost: $0.10." in lines[1]
-
-    # line 3: flags joined with ", " and terminated by a period.
-    assert lines[2] == "Flags: secret_aws, shell_rm, env_mutation."
+    # line 2: flags joined with ", " and terminated by a period.
+    assert lines[1] == "Flags: secret_aws, shell_rm, env_mutation."
 
 
 def test_duration_zero_when_ended_at_none(client, db_session, alice_headers):
@@ -200,8 +195,7 @@ def test_duration_zero_when_ended_at_none(client, db_session, alice_headers):
     assert r.status_code == 200
     lines = r.json()["summary"].split("\n")
     assert lines[0] == "2 tools across 1 files in 0s."
-    assert lines[1] == "Tokens: 0\u21920  Cost: $0.00."
-    assert lines[2] == "Flags: none."
+    assert lines[1] == "Flags: none."
 
 
 def test_post_404_on_cross_user(client, db_session, alice_headers):

@@ -314,7 +314,7 @@ def test_session_end_triggers_auto_summary(engine, db_session, mint_token):
     assert resp.status_code == 200
     body = resp.json()
     assert body["session_id"] == "ae1"
-    assert body["summary"].count("\n") == 2  # 3-line determinstic summary
+    assert body["summary"].count("\n") == 1  # 2-line summary (tokens/cost line removed pre-launch)
 
 
 def test_detail_event_cap(client, db_session, alice_headers):
