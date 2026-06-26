@@ -2,22 +2,11 @@ import { useMemo } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { listSessions, listWorkspaces, type Workspace } from "../lib/api"
 import { FilterBar } from "../features/sessions/FilterBar"
+import { FleetStats } from "../features/sessions/FleetStats"
 import { useFilters } from "../features/sessions/filters"
 import { SessionsTable } from "../features/sessions/SessionsTable"
 import { Skeleton } from "../components/ui/Skeleton"
 import type { SessionList } from "../types/receipt"
-
-const RUBRIC =
-  "mt-1 font-mono text-caption uppercase tracking-wider text-ink-faint tabular-nums"
-
-// Events are the sum of per-session tool calls — backend Session shape has no
-// top-level event_count, and tool_call is the dominant event kind in practice.
-function rubricFor(list: SessionList | undefined): string {
-  if (!list) return "— sessions · — events"
-  const sessions = list.total
-  const events = list.items.reduce((n, s) => n + s.tool_count, 0)
-  return `${sessions} ${sessions === 1 ? "session" : "sessions"} · ${events} ${events === 1 ? "event" : "events"}`
-}
 
 export function SessionsListPage() {
   const filters = useFilters()
@@ -45,8 +34,9 @@ export function SessionsListPage() {
     <div className="space-y-4">
       <header className="border-b border-dashed border-rule pb-4">
         <h1 className="font-mono text-2xl font-semibold text-ink">Receipts</h1>
-        <p className={RUBRIC}>{rubricFor(query.data)}</p>
       </header>
+
+      {query.data && <FleetStats list={query.data} />}
 
       <FilterBar />
 
