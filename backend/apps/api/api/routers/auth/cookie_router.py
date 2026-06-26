@@ -57,6 +57,14 @@ _ACCESS_TTL = int(os.getenv("AUTH_ACCESS_TTL_SECONDS", "3600"))        # 1 h
 _REFRESH_TTL = int(os.getenv("AUTH_REFRESH_TTL_SECONDS", "604800"))    # 7 d
 _CSRF_TTL = _REFRESH_TTL
 
+
+def _is_local_auth() -> bool:
+    """True on a self-hosted local deploy (no Supabase). Gated on AUTH_PROVIDER,
+    the same switch the datastore + auth-provider factories use. GitHub OAuth is
+    a Supabase-only feature; on local we degrade instead of instantiating a
+    SupabaseManager that would raise on the missing SUPABASE_* env."""
+    return os.getenv("AUTH_PROVIDER", "local").strip().lower() != "supabase"
+
 # Path scoping — all three cookies at `/` to avoid Chrome's "set-cookie with
 # non-prefix Path gets silently dropped on send" behavior. Signin runs at
 # /api/v1/auth/signin; narrower paths like /api/v1/auth/session were stored
@@ -264,6 +272,15 @@ class CookieAuthRouter:
         return f"{supabase.client.auth._storage_key}-code-verifier"
 
     async def github_start(self, request: Request) -> Response:
+        if _is_local_auth():
+            # GitHub OAuth is Supabase-only. On self-host, instantiating
+            # SupabaseManager() here (outside the try) would 500 on the missing
+            # SUPABASE_* env — degrade to the password sign-in instead.
+            self.logger.log_warning("github_oauth_unavailable_local", {})
+            return RedirectResponse(
+                f"{self._app_url()}/signin?reason=oauth-unavailable",
+                status_code=302,
+            )
         supabase = SupabaseManager()
         callback_url = f"{self._api_base(request)}/api/v1/auth/github/callback"
         try:
@@ -301,6 +318,10 @@ class CookieAuthRouter:
         error_description: str | None = Query(default=None),
     ) -> Response:
         app = self._app_url()
+        if _is_local_auth():
+            # Unreachable via github_start (gated above), but stay consistent if
+            # a stale callback URL is hit on a self-host instance.
+            return RedirectResponse(f"{app}/signin?reason=oauth-unavailable", status_code=302)
         # Provider-level refusal (user hit "Cancel" on GitHub, etc.)
         if error or not code:
             self.logger.log_warning(
@@ -337,9 +358,12 @@ class CookieAuthRouter:
     async def signout(self, request: Request, response: Response) -> Response:
         """Clear cookies unconditionally — idempotent, no 401 if already out."""
         # Best-effort server-side sign-out so Supabase drops the refresh family.
+        # Self-host (local) has no Supabase session to drop — local refresh
+        # tokens are revoked via the refresh-rotation path — so skip the call
+        # entirely rather than instantiate a SupabaseManager that would raise.
         refresh = request.cookies.get(REFRESH_COOKIE_NAME)
         access = request.cookies.get(SESSION_COOKIE_NAME)
-        if refresh and access:
+        if refresh and access and not _is_local_auth():
             try:
                 supabase = SupabaseManager()
                 supabase.client.auth.sign_out()
