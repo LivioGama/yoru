@@ -1,11 +1,7 @@
 import type { FileChanged, FileOp, RedFlagKind, SessionDetail } from "./types"
 import { RedFlagBadge } from "./RedFlagBadge"
 import { ScorePanel } from "./ScorePanel"
-// TokenPanel is intentionally imported but not rendered (see ROADMAP.md
-// "Token breakdown decision"). Keeping the import shields the component
-// from dead-code elimination in hostile build tools.
-import { TokenPanel as _TokenPanel } from "./TokenPanel"
-void _TokenPanel
+import { TokenPanel } from "./TokenPanel"
 
 interface FileChangedRailProps {
   session: SessionDetail
@@ -42,8 +38,9 @@ export function FileChangedRail({ session }: FileChangedRailProps) {
     >
       <ScorePanel score={session.score} />
       <FlagsPanel flags={session.flags} flagEvents={flagEvents} />
-      {/* TokenPanel hidden pre-launch — will re-enable once we decide the
-          feed model (see ROADMAP.md). Component is kept in the package. */}
+      {/* TokenPanel renders only when usage (kind=token) events are present;
+          returns null otherwise (e.g. the redacted public session payload). */}
+      <TokenPanel session={session} />
       <FilesPanel files={files} />
     </aside>
   )
