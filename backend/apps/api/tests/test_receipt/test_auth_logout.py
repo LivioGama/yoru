@@ -54,10 +54,16 @@ def _assert_envelope(body: dict, expected_code: str) -> None:
     assert isinstance(err["request_id"], str) and err["request_id"]
 
 
-def test_logout_happy_204(client: TestClient, engine) -> None:
-    # Mint a fresh token.
-    mint = client.post("/api/v1/auth/hook-token", json={"user": "alice"})
+def test_logout_happy_204(client: TestClient, engine, session_cookie_for) -> None:
+    # Mint a fresh token as a logged-in caller (v1: mint requires the session
+    # cookie; body.user is ignored). Drop the cookie afterwards so logout +
+    # replay are exercised purely via the bearer.
+    from apps.api.api.dependencies.auth import SESSION_COOKIE_NAME
+
+    client.cookies.set(SESSION_COOKIE_NAME, session_cookie_for("alice@yoru.test"))
+    mint = client.post("/api/v1/auth/hook-token", json={"user": "ignored@body"})
     assert mint.status_code == 201, mint.text
+    client.cookies.delete(SESSION_COOKIE_NAME)
     raw = mint.json()["token"]
     headers = {"Authorization": f"Bearer {raw}"}
 

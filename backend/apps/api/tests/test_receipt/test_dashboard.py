@@ -13,6 +13,10 @@ from apps.api.api.routers.receipt.db import get_session
 from apps.api.api.routers.receipt.models import Session as SessionRow
 
 
+_CALLER_EMAIL = "alice@x.io"
+_SCOPE_WS = "ws-test"
+
+
 @pytest.fixture()
 def app(engine) -> FastAPI:
     """Mount only the DashboardRouter — isolated from sibling routers."""
@@ -27,9 +31,26 @@ def app(engine) -> FastAPI:
     return _app
 
 
+@pytest.fixture(autouse=True)
+def _patch_scope(monkeypatch):
+    """`_resolve_scope` reads org/workspace membership from the Supabase client
+    (`.table(...)`), which a local self-hosted store can't answer — so it would
+    return ([], None) and the dashboard would aggregate nothing. Pin a
+    deterministic scope so the tests exercise the real SQL aggregation: the
+    caller is `alice@x.io` and sees workspace `ws-test`.
+    (Self-host gap flagged separately: `_resolve_scope` is Supabase-coupled.)"""
+    import apps.api.api.routers.receipt.dashboard_router as dr
+
+    monkeypatch.setattr(dr, "_resolve_scope", lambda _uid: ([_SCOPE_WS], _CALLER_EMAIL))
+
+
 @pytest.fixture()
-def client(app) -> TestClient:
-    return TestClient(app)
+def client(app, session_cookie_for) -> TestClient:
+    c = TestClient(app)
+    from apps.api.api.dependencies.auth import SESSION_COOKIE_NAME
+
+    c.cookies.set(SESSION_COOKIE_NAME, session_cookie_for(_CALLER_EMAIL))
+    return c
 
 
 def _now() -> datetime:
@@ -60,15 +81,15 @@ def test_populated_db_returns_groupings(
         db_session,
         SessionRow(
             id="s1", user="alice@x.io", started_at=now,
-            cost_usd=1.50, flagged=True,
+            cost_usd=1.50, flagged=True, workspace_id=_SCOPE_WS,
         ),
         SessionRow(
             id="s2", user="alice@x.io", started_at=now,
-            cost_usd=0.75, flagged=False,
+            cost_usd=0.75, flagged=False, workspace_id=_SCOPE_WS,
         ),
         SessionRow(
             id="s3", user="bob@x.io", started_at=now,
-            cost_usd=2.25, flagged=False,
+            cost_usd=2.25, flagged=False, workspace_id=_SCOPE_WS,
         ),
     )
 
@@ -104,11 +125,11 @@ def test_since_filter_drops_older_rows(
         db_session,
         SessionRow(
             id="new", user="alice@x.io", started_at=now,
-            cost_usd=1.00, flagged=True,
+            cost_usd=1.00, flagged=True, workspace_id=_SCOPE_WS,
         ),
         SessionRow(
             id="old", user="alice@x.io", started_at=old,
-            cost_usd=9.99, flagged=True,
+            cost_usd=9.99, flagged=True, workspace_id=_SCOPE_WS,
         ),
     )
 
@@ -138,7 +159,7 @@ def test_future_since_returns_empty(
         db_session,
         SessionRow(
             id="s1", user="alice@x.io", started_at=_now(),
-            cost_usd=1.00, flagged=False,
+            cost_usd=1.00, flagged=False, workspace_id=_SCOPE_WS,
         ),
     )
     resp = client.get("/api/v1/dashboard/team?since=2099-01-01T00:00:00Z")

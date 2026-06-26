@@ -64,10 +64,19 @@ def test_all_six_headers_present_on_health(secured_client: TestClient) -> None:
     _assert_all_six_headers(r)
 
 
-def test_headers_present_on_auth_endpoint(secured_client: TestClient) -> None:
+def test_headers_present_on_auth_endpoint(
+    secured_client: TestClient, session_cookie_for
+) -> None:
+    # v1: mint requires the session cookie. We only assert the header bundle
+    # lands on a real 201 POST, so authenticate the caller.
+    from apps.api.api.dependencies.auth import SESSION_COOKIE_NAME
+
+    secured_client.cookies.set(
+        SESSION_COOKIE_NAME, session_cookie_for("alice@yoru.test")
+    )
     r = secured_client.post(
         "/api/v1/auth/hook-token",
-        json={"user": "alice", "label": "laptop"},
+        json={"user": "ignored@body", "label": "laptop"},
     )
     assert r.status_code == 201
     _assert_all_six_headers(r)

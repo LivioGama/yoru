@@ -18,11 +18,16 @@ _UUID_HEX = re.compile(r"^[0-9a-f]{32}$")
 
 # ---------- mint ----------
 
-def test_mint_happy_path(client: TestClient, engine) -> None:
-    resp = client.post("/api/v1/auth/hook-token", json={"user": "alice"})
+def test_mint_happy_path(logged_in_client: TestClient, engine) -> None:
+    # v1: identity comes from the session cookie, not body.user. The minted
+    # token is bound to the logged-in caller's email. (`user` is a required-but-
+    # ignored body field — send a decoy to prove it can't rebind the token.)
+    resp = logged_in_client.post(
+        "/api/v1/auth/hook-token", json={"user": "ignored@body"}
+    )
     assert resp.status_code == 201, resp.text
     body = resp.json()
-    assert body["user"] == "alice"
+    assert body["user"] == logged_in_client.email
     assert body["token"].startswith("rcpt_")
     assert len(body["token"]) > len("rcpt_") + 16
     assert _UUID_HEX.match(body["user_id"])
@@ -30,7 +35,9 @@ def test_mint_happy_path(client: TestClient, engine) -> None:
     # sha256 of the returned raw token must match the persisted hash.
     expected_hash = hashlib.sha256(body["token"].encode("utf-8")).hexdigest()
     with DBSession(engine) as s:
-        rows = s.exec(select(HookToken).where(HookToken.user == "alice")).all()
+        rows = s.exec(
+            select(HookToken).where(HookToken.user == logged_in_client.email)
+        ).all()
     assert len(rows) == 1
     assert rows[0].token_hash == expected_hash
     assert rows[0].id == body["user_id"]
@@ -38,25 +45,33 @@ def test_mint_happy_path(client: TestClient, engine) -> None:
     assert rows[0].last_used_at is None
 
 
-def test_mint_with_label(client: TestClient, engine) -> None:
-    resp = client.post(
+def test_mint_with_label(logged_in_client: TestClient, engine) -> None:
+    resp = logged_in_client.post(
         "/api/v1/auth/hook-token",
-        json={"user": "bob", "label": "laptop-01"},
+        json={"user": "ignored@body", "label": "laptop-01"},
     )
     assert resp.status_code == 201
     with DBSession(engine) as s:
-        row = s.exec(select(HookToken).where(HookToken.user == "bob")).one()
+        row = s.exec(
+            select(HookToken).where(HookToken.user == logged_in_client.email)
+        ).one()
     assert row.label == "laptop-01"
 
 
-def test_mint_rejects_empty_user(client: TestClient) -> None:
-    resp = client.post("/api/v1/auth/hook-token", json={"user": ""})
-    assert resp.status_code == 422
+def test_mint_ignores_body_user(logged_in_client: TestClient) -> None:
+    # v1 hardening (CVE): body.user is IGNORED — a forged user can never rebind
+    # the token. Mint succeeds, bound to the session identity, not the decoy.
+    resp = logged_in_client.post(
+        "/api/v1/auth/hook-token", json={"user": "attacker@evil.com"}
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["user"] == logged_in_client.email
 
 
-def test_mint_rejects_missing_user(client: TestClient) -> None:
-    resp = client.post("/api/v1/auth/hook-token", json={})
-    assert resp.status_code == 422
+def test_mint_requires_auth(client: TestClient) -> None:
+    # No session cookie / bearer → 401 (endpoint is no longer unauth in v1).
+    resp = client.post("/api/v1/auth/hook-token", json={"user": "alice"})
+    assert resp.status_code == 401
 
 
 # ---------- list ----------

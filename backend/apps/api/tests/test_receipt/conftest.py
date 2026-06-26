@@ -23,8 +23,9 @@ from apps.api.api.routers.receipt import models  # noqa: F401,E402
 
 # Register the datastore model (table `datastore_records`) in SQLModel.metadata
 # BEFORE create_all, else workspace-routing / share queries hit a missing table
-# in tests ("no such table: datastore_records").
-from libs.datastore import local_store  # noqa: F401,E402
+# in tests ("no such table: datastore_records"). Also rebound per-test (engine
+# fixture) onto an isolated engine.
+from libs.datastore import local_store  # noqa: E402
 
 
 @pytest.fixture()
@@ -41,18 +42,27 @@ def engine():
     SQLModel.metadata.create_all(eng)
     old = receipt_db.engine
     receipt_db.engine = eng
-    # local_store did `from ...db import engine` at import time, so it holds a
-    # snapshot — rebinding receipt_db.engine alone doesn't reach it. Patch its
-    # name too, else datastore-backed paths (workspace routing, share) query a
-    # table-less engine ("no such table: datastore_records").
-    from libs.datastore import local_store
+    # The datastore (workspace routing, share) gets its OWN isolated engine —
+    # NOT the receipt engine. local_store opens short-lived `with Session(engine)`
+    # blocks; on the receipt engine's single StaticPool connection, that nested
+    # session's close() rolled back the events router's in-flight flush, so the
+    # later summary-rebuild UPDATE matched 0 rows ("StaleDataError"). A separate
+    # connection mirrors prod (each Session draws its own pooled connection) and
+    # keeps the `datastore_records` table present so queries return [] not raise.
+    ds_eng = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    SQLModel.metadata.create_all(ds_eng)
     old_ls = local_store.engine
-    local_store.engine = eng
+    local_store.engine = ds_eng
     try:
         yield eng
     finally:
         receipt_db.engine = old
         local_store.engine = old_ls
+        ds_eng.dispose()
 
 
 @pytest.fixture()
@@ -116,3 +126,57 @@ def mint_token(db_session):
         return raw, {"Authorization": f"Bearer {raw}"}
 
     return _mint
+
+
+@pytest.fixture()
+def session_cookie_for():
+    """Factory → a valid ``rcpt_session`` access-token JWT for the given email.
+
+    Forges the exact claims ``/auth/signin`` mints (the local provider's access
+    token: sub/email/role/iss/iat/exp, HS256 over the process secret) so the
+    cookie auth vector resolves a logged-in user — no live signin round-trip.
+
+    Identity flows two ways downstream, both satisfied here:
+      - ``require_current_user`` (mint/list/revoke/logout) → ``email_from_token``
+        → the **email**, which hook-tokens get bound to.
+      - ``get_current_user_id`` (dashboard) → ``verify_access_token`` →
+        ``UUID(sub)``.
+    The bare test apps mount no ``CsrfMiddleware``, so no ``X-CSRF-Token`` is
+    needed — the 401s under test come from the auth dependency, not CSRF.
+    """
+    import uuid as _uuid
+    from datetime import datetime, timedelta, timezone
+
+    import jwt
+
+    from apps.api.api.services.auth import local_provider as lp
+
+    def _make(email: str = "alice@yoru.test") -> str:
+        now = datetime.now(timezone.utc)
+        payload = {
+            "sub": _uuid.uuid4().hex,
+            "email": email,
+            "role": "user",
+            "iss": lp._JWT_ISS,
+            "iat": int(now.timestamp()),
+            "exp": int((now + timedelta(seconds=lp._ACCESS_TTL)).timestamp()),
+        }
+        return jwt.encode(payload, lp._jwt_secret(), algorithm=lp._JWT_ALG)
+
+    return _make
+
+
+@pytest.fixture()
+def logged_in_client(app, session_cookie_for) -> TestClient:
+    """Conftest-app TestClient carrying a valid dashboard session cookie.
+
+    ``client.email`` is the identity hook-tokens get bound to (the v1 mint
+    endpoint ignores ``body.user`` and derives the caller from the cookie).
+    """
+    from apps.api.api.dependencies.auth import SESSION_COOKIE_NAME
+
+    email = "alice@yoru.test"
+    c = TestClient(app)
+    c.cookies.set(SESSION_COOKIE_NAME, session_cookie_for(email))
+    c.email = email
+    return c
