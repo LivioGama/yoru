@@ -176,6 +176,11 @@ The **first registered user becomes the admin.** For an internet-exposed
 instance, set `SETUP_TOKEN=<random>` so only someone holding the token can run
 the wizard. Pin `AUTH_JWT_SECRET` in production (the wizard does this for you).
 
+A self-hosted instance is **single-tenant**: there are no organizations or
+member roles, so any authenticated dashboard user manages tokens (hook tokens
+and CI/fleet service tokens). Multi-tenant orgs and admin roles are a
+cloud-only (`AUTH_PROVIDER=supabase`) concern.
+
 Full walkthrough — Postgres, GitHub OAuth, SMTP, and the Supabase path — in
 [`docs/SELF-HOST.md`](docs/SELF-HOST.md).
 

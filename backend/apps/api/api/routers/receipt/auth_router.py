@@ -16,6 +16,7 @@ Token storage: raw token returned once on mint, sha256 hash persisted.
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import os
 import secrets
@@ -29,9 +30,8 @@ from sqlalchemy import update as sa_update
 from sqlmodel import Session as DBSession
 from sqlmodel import select
 
-import json
-
 from apps.api.api.dependencies.auth import SESSION_COOKIE_NAME
+from apps.api.api.services.auth.provider import get_auth_provider
 
 from .auth_sessions_model import AuthSession
 from .db import get_session
@@ -120,6 +120,16 @@ if not os.environ.get("AUTH_JWT_SECRET"):
 
 def _jwt_secret() -> str:
     return os.environ.get("AUTH_JWT_SECRET") or _DEV_JWT_SECRET
+
+
+def _is_local_auth() -> bool:
+    """True on a self-hosted local deploy (no Supabase). Gated solely on
+    AUTH_PROVIDER — same switch as the datastore + auth-provider factories — so
+    the cloud (Supabase) path is never reached on local and never altered on
+    cloud. Self-host is single-tenant: there is no org/membership model, so the
+    org-admin checks below collapse to "any authenticated dashboard user".
+    """
+    return os.getenv("AUTH_PROVIDER", "local").strip().lower() != "supabase"
 
 
 def _hash_refresh(raw: str) -> str:
@@ -528,9 +538,24 @@ class AuthRouter:
         return jwt
 
     def _require_org_admin(self, request: Request, org_id: str) -> str:
-        """Raise 403 unless the caller (via Supabase JWT cookie) is owner or
-        admin of the org. Returns the caller's user email for audit trail."""
+        """Authorize a service-token admin action. Returns the caller's email.
+
+        Self-host (AUTH_PROVIDER=local): single-tenant, no org model. Per the
+        README ("the first registered user becomes the admin"), any
+        authenticated dashboard user manages service tokens — validate the
+        session via the local auth provider; authenticated == authorized.
+
+        Cloud (AUTH_PROVIDER=supabase): UNCHANGED — the caller must be owner or
+        admin of `org_id` per `organization_members`.
+        """
         jwt = self._require_dashboard_jwt(request)
+
+        if _is_local_auth():
+            email = get_auth_provider().email_from_token(jwt)
+            if not email:
+                raise HTTPException(status_code=401, detail="Invalid session")
+            return email
+
         from libs.supabase.supabase import SupabaseManager
         supabase = SupabaseManager(access_token=jwt)
         try:
@@ -566,7 +591,13 @@ class AuthRouter:
         """Resolve the 'Default' workspace id of an org for service-token
         backward-compat: existing API contract accepts `org_id` but new DB
         column is `workspace_id`. We look up the default workspace row via
-        Supabase PostgREST (RLS will enforce the caller's membership)."""
+        Supabase PostgREST (RLS will enforce the caller's membership).
+
+        Self-host has no Supabase `workspaces` table, so we bind to a
+        deterministic per-org local id — create/list/revoke all derive the same
+        value, keeping them consistent without any cloud call."""
+        if _is_local_auth():
+            return f"local:{org_id}"
         import httpx
         supabase_url = os.environ.get("SUPABASE_URL", "").rstrip("/")
         anon = os.environ.get("SUPABASE_ANON_KEY", "")
@@ -667,6 +698,18 @@ class AuthRouter:
         row = db.get(CliToken, token_id)
         if row is None or row.token_type != "service" or not row.workspace_id:
             raise HTTPException(status_code=404, detail="service token not found")
+
+        if _is_local_auth():
+            # Self-host: workspace_id is "local:<org_id>"; authorize any
+            # authenticated dashboard user (single-tenant admin). No Supabase.
+            org_id = row.workspace_id.removeprefix("local:")
+            self._require_org_admin(request, org_id)
+            if row.revoked_at is None:
+                row.revoked_at = _naive_utc_now()
+                db.add(row)
+                db.commit()
+            return None
+
         # Look up the org for this workspace so we can admin-check.
         import httpx
         supabase_url = os.environ.get("SUPABASE_URL", "").rstrip("/")
