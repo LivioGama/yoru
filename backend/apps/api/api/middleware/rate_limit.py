@@ -65,7 +65,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self.enabled = enabled and settings.enable_rate_limiting
 
         self.rate_limiter = RateLimiter()
-        self.supabase = supabase or SupabaseManager()
+        # Lazy — never instantiate SupabaseManager at construction (it validates
+        # SUPABASE_* env in __init__ and would crash boot). Built on first use
+        # via the `supabase` property below. This middleware is not mounted in
+        # the self-host build (the live stack uses middlewares/rate_limit).
+        self._supabase = supabase
         self.window_seconds = settings.rate_limit_window_seconds
         self.default_limit = settings.rate_limit_free_plan  # Use free plan as default
         self.unauthenticated_limit = settings.rate_limit_unauthenticated
@@ -83,6 +87,12 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             )
         else:
             self.logger.log_info("Rate limiting disabled")
+
+    @property
+    def supabase(self) -> SupabaseManager:
+        if self._supabase is None:
+            self._supabase = SupabaseManager()
+        return self._supabase
 
     async def dispatch(self, request: Request, call_next) -> Response:
         """

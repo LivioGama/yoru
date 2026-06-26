@@ -28,8 +28,19 @@ class RBACMiddleware(BaseHTTPMiddleware):
 
     def __init__(self, app, supabase: SupabaseManager | None = None):
         super().__init__(app)
-        self.supabase = supabase or SupabaseManager()
+        # Lazy: do NOT instantiate SupabaseManager at construction. This
+        # middleware is not mounted in the self-host build; instantiating
+        # SupabaseManager() here would raise on missing SUPABASE_* env (it
+        # validates in __init__) and crash boot for anyone who ever mounts it.
+        # Built on first use instead — see the `supabase` property below.
+        self._supabase = supabase
         self.logger = LoggingController(app_name="RBACMiddleware")
+
+    @property
+    def supabase(self) -> SupabaseManager:
+        if self._supabase is None:
+            self._supabase = SupabaseManager()
+        return self._supabase
 
     async def dispatch(self, request: Request, call_next):
         """

@@ -37,7 +37,7 @@ cloud database, no SMTP needed to get running.**
 
 ```bash
 git clone https://github.com/TsukumoHQ/yoru.git && cd yoru
-cp .env.example backend/.env            # root .env.example = self-host defaults, work as-is
+cp backend/.env.example backend/.env    # keyless self-host defaults — work as-is, no cloud keys
 make dev                                # api :8002 + dashboard :5173
 ```
 
