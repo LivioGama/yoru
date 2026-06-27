@@ -366,3 +366,21 @@ def test_kind_inferred_as_tool_use_for_bash_toolname(
     assert len(rows) == 1
     assert rows[0].kind == "tool_use"
     assert rows[0].tool == "Bash"
+
+
+# ── title derivation: skip skill-load / command / hook preambles (QA polish) ──
+
+def test_derive_session_title_skips_preambles():
+    from apps.api.api.routers.receipt.events_router import _derive_session_title
+    # Skill-load / slash-command / hook banners -> None (not user intent).
+    assert _derive_session_title(
+        "Base directory for this skill: /Users/loic/.claude/skills/pr-review-self\n# x"
+    ) is None
+    assert _derive_session_title("<command-name>/yoru-dev</command-name>\n# yoru-dev") is None
+    assert _derive_session_title("CAVEMAN MODE ACTIVE\nfix bug") is None
+    assert _derive_session_title("<system-reminder>ctx</system-reminder>") is None
+    assert _derive_session_title("") is None
+    # Real prompts still title (first non-empty line, capped at 80).
+    assert _derive_session_title("fix the 500 on /auth/logout") == "fix the 500 on /auth/logout"
+    assert _derive_session_title("  \n  Refactor middleware  \nmore") == "Refactor middleware"
+    assert len(_derive_session_title("x" * 200)) == 80

@@ -137,6 +137,33 @@ def _infer_kind(tool: str | None) -> EventKind:
     return "tool_use"
 
 
+# A session's title is the headline of its shareable receipt (and the dashboard
+# row), so it must read like what the USER asked, not a Claude Code system
+# message. When the first "user" event is actually a skill load, a slash-command
+# invocation, or a hook-injected banner, its first line is one of these
+# preambles — title-deriving from it produces junk like "Base directory for this
+# skill: ~/.claude/skills/...". We detect those and decline to title from them,
+# leaving the title None so a later, genuine prompt sets it (falling back to the
+# session id if none ever arrives).
+_TITLE_SKIP_PREFIXES: tuple[str, ...] = (
+    "base directory for this skill:",  # skill load preamble
+    "<command-name>",                  # slash-command invocation tags
+    "<command-message>",
+    "<command-args>",
+    "caveman mode",                    # hook-injected mode banner
+    "<system-reminder>",
+)
+
+
+def _derive_session_title(content: str) -> str | None:
+    """Title from the first real line of a user message, or None when that line
+    is a non-user-intent preamble (skill load / slash-command / hook banner)."""
+    first = next((ln.strip() for ln in content.split("\n") if ln.strip()), "")
+    if not first or first.lower().startswith(_TITLE_SKIP_PREFIXES):
+        return None
+    return first[:80]
+
+
 def event_entry_hash(prev_hash: str, ts, kind, tool, path, content,
                      tokens_input, tokens_output, cost_usd) -> str:
     """sha256 over the previous hash + this event's immutable content.
@@ -409,19 +436,19 @@ class EventsRouter:
                 )
 
             # First user-prompt message sets the session title. Cheap
-            # idempotent: only fires when sess.title is still None.
+            # idempotent: only fires when sess.title is still None. Skips
+            # skill-load / slash-command / hook preambles so the title reads
+            # like a real prompt (see _derive_session_title); when this message
+            # is a preamble, title stays None for a later genuine prompt.
             if (
                 sess.title is None
                 and e.kind == "message"
                 and e.tool == "user"
                 and e.content
             ):
-                first_line = next(
-                    (ln.strip() for ln in e.content.split("\n") if ln.strip()),
-                    "",
-                )
-                if first_line:
-                    sess.title = first_line[:80]
+                derived = _derive_session_title(e.content)
+                if derived:
+                    sess.title = derived
 
             # Push started_at backward on ANY event with an earlier ts.
             # Fixes backfill: the hook-ingested events land first and set
