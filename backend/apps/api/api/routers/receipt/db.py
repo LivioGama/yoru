@@ -95,6 +95,11 @@ def init_db() -> None:
             conn.execute(text("ALTER TABLE events ADD COLUMN entry_hash TEXT"))
         if "prev_hash" not in ev_cols:
             conn.execute(text("ALTER TABLE events ADD COLUMN prev_hash TEXT"))
+        if "entry_uuid" not in ev_cols:
+            conn.execute(text("ALTER TABLE events ADD COLUMN entry_uuid TEXT"))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_events_entry_uuid ON events(entry_uuid)"
+            ))
 
         # Phase B migration: hook_tokens → cli_tokens + type split. Idempotent.
         has_cli = conn.execute(text(

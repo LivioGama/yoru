@@ -308,7 +308,27 @@ class EventsRouter:
         # event so the chain continues across batches.
         chain_tip: dict[str, str] = {}
 
+        # Dedup keys present in this batch (tailer-origin events carry a stable
+        # entry_uuid). Seed from the DB so re-reading a transcript is idempotent.
+        batch_uuids = {e.entry_uuid for e in batch.events if e.entry_uuid}
+        seen_uuids: set[str] = set()
+        if batch_uuids:
+            sids = {e.session_id for e in batch.events}
+            existing = session.exec(
+                select(Event.entry_uuid).where(
+                    Event.session_id.in_(sids),
+                    Event.entry_uuid.in_(batch_uuids),
+                )
+            ).all()
+            seen_uuids.update(u for u in existing if u)
+
         for e in batch.events:
+            # Skip events we already have (idempotent re-read after downtime).
+            if e.entry_uuid:
+                if e.entry_uuid in seen_uuids:
+                    continue
+                seen_uuids.add(e.entry_uuid)
+
             effective_user = e.user or current_user
             if effective_user is None:
                 raise HTTPException(
@@ -473,6 +493,7 @@ class EventsRouter:
                 git_branch=e.git_branch,
                 prev_hash=prev_hash,
                 entry_hash=entry_hash,
+                entry_uuid=e.entry_uuid,
             )
             session.add(ev_row)
             if flags and e.session_id not in first_flagged_event_id:

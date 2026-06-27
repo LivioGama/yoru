@@ -94,6 +94,11 @@ class Event(SQLModel, table=True):
     # GET /sessions/{id}/verify. This is what makes the trail court-usable.
     entry_hash: Optional[str] = Field(default=None)
     prev_hash: Optional[str] = Field(default=None)
+    # Stable per-event dedup key from the source transcript (line uuid + block
+    # index). Lets the tailer re-read a transcript idempotently — the backend
+    # skips an (session_id, entry_uuid) it already has — so events survive
+    # backend downtime without ever double-inserting.
+    entry_uuid: Optional[str] = Field(default=None, index=True)
 
 
 class CliToken(SQLModel, table=True):
@@ -266,6 +271,9 @@ class EventIn(SQLModel):
     cwd: Optional[str] = None
     git_remote: Optional[str] = None
     git_branch: Optional[str] = None
+    # Transcript dedup key (tailer-origin events). When present, the backend
+    # skips re-inserting an (session_id, entry_uuid) it already has.
+    entry_uuid: Optional[str] = None
 
     @model_validator(mode="before")
     @classmethod

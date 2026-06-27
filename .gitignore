@@ -76,3 +76,4 @@ backend/data/.auth_jwt_secret
 
 # Embedding cache (trovex / fastembed)
 .fastembed_cache/
+.vercel
