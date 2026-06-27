@@ -414,3 +414,72 @@ def test_receipt_png_title_redacted(client, db_session, alice_headers):
     resp = client.get("/api/v1/sessions/rp3/receipt.png", headers=alice_headers)
     assert resp.status_code == 200
     assert resp.content[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+# ── TSU-55 — shareable replay GIF (authed, owner-only local export) ──────────
+
+def test_replay_gif_happy_path(client, db_session, alice_headers):
+    db_session.add(SessionRow(
+        id="rg1", user="alice",
+        started_at=BASE_TS, ended_at=BASE_TS + timedelta(minutes=2),
+        tools_count=3, files_count=1, flags=["shell_rm"],
+        tools_called=["Bash", "Edit"], title="Replay me",
+    ))
+    for i, kind in enumerate(("session_start", "tool_use", "file_change")):
+        db_session.add(Event(
+            session_id="rg1", ts=BASE_TS + timedelta(seconds=i),
+            kind=kind, tool="Bash", path=f"f{i}.py", flags=[],
+        ))
+    db_session.commit()
+
+    resp = client.get("/api/v1/sessions/rg1/replay.gif", headers=alice_headers)
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "image/gif"
+    assert "no-store" in resp.headers.get("cache-control", "")
+    assert resp.content[:6] == b"GIF89a"
+    assert len(resp.content) > 1000
+
+
+def test_replay_gif_empty_session_still_renders(client, db_session, alice_headers):
+    """A session with no events still yields a valid (grade-only) GIF."""
+    db_session.add(SessionRow(id="rg2", user="alice", started_at=BASE_TS,
+                              tools_count=0, files_count=0, flags=[], tools_called=[]))
+    db_session.commit()
+    resp = client.get("/api/v1/sessions/rg2/replay.gif", headers=alice_headers)
+    assert resp.status_code == 200
+    assert resp.content[:6] == b"GIF89a"
+
+
+def test_replay_gif_404_on_unknown_id(client, alice_headers):
+    resp = client.get("/api/v1/sessions/nope/replay.gif", headers=alice_headers)
+    assert resp.status_code == 404
+
+
+def test_replay_gif_404_on_cross_user(client, db_session, alice_headers):
+    _seed_four_sessions(db_session)
+    resp = client.get("/api/v1/sessions/s2/replay.gif", headers=alice_headers)  # bob
+    assert resp.status_code == 404
+
+
+def test_replay_gif_401_without_bearer(client, db_session):
+    db_session.add(SessionRow(id="rg3", user="alice", started_at=BASE_TS))
+    db_session.commit()
+    resp = client.get("/api/v1/sessions/rg3/replay.gif")
+    assert resp.status_code == 401
+
+
+def test_replay_gif_scrubs_event_labels(client, db_session, alice_headers):
+    """A secret/path in an event must be scrubbed before it's baked into a frame."""
+    from apps.api.api.routers.receipt.public_sessions_router import _scrub_public_text
+    dirty = "cat /Users/alice/.env  # AKIA1234567890ABCDEF"
+    assert "AKIA1234567890ABCDEF" not in _scrub_public_text(dirty)
+    assert "/Users/alice" not in _scrub_public_text(dirty)
+
+    db_session.add(SessionRow(id="rg4", user="alice", started_at=BASE_TS,
+                              tools_count=1, files_count=0, flags=[], tools_called=[]))
+    db_session.add(Event(session_id="rg4", ts=BASE_TS, kind="tool_use",
+                         tool="Bash", content=dirty, flags=["secret_aws"]))
+    db_session.commit()
+    resp = client.get("/api/v1/sessions/rg4/replay.gif", headers=alice_headers)
+    assert resp.status_code == 200
+    assert resp.content[:6] == b"GIF89a"

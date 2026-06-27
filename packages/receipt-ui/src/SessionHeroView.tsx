@@ -22,6 +22,9 @@ interface SessionHeroViewProps {
   onDownloadReceipt?: () => void
   onCopyReceipt?: () => void
   isReceiptBusy?: boolean
+  /** TSU-55 — download the animated session-replay GIF (local export). */
+  onDownloadReplay?: () => void
+  isReplayBusy?: boolean
 }
 
 const RUBRIC = "font-mono text-caption uppercase tracking-wider text-ink-faint"
@@ -38,6 +41,8 @@ export function SessionHeroView({
   onDownloadReceipt,
   onCopyReceipt,
   isReceiptBusy = false,
+  onDownloadReplay,
+  isReplayBusy = false,
 }: SessionHeroViewProps) {
   const shortId = session.id.slice(0, 4)
   const summary = (session.summary ?? "").trim()
@@ -56,8 +61,26 @@ export function SessionHeroView({
           >
             {session.title ?? session.user_email}
           </h1>
-          {(onExport || onToggleShare || onDownloadReceipt || onCopyReceipt) && (
+          {(onExport || onToggleShare || onDownloadReceipt || onCopyReceipt || onDownloadReplay) && (
             <div className="ml-auto flex shrink-0 items-center gap-2">
+              {onDownloadReplay && (
+                <button
+                  type="button"
+                  onClick={onDownloadReplay}
+                  disabled={isReplayBusy}
+                  title="Download an animated replay of this session (GIF)"
+                  className={
+                    "inline-flex items-center gap-1 rounded-sm border border-rule px-2 py-1 " +
+                    "font-mono text-caption uppercase tracking-wider text-ink-muted " +
+                    "hover:bg-sunken hover:text-ink " +
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 " +
+                    "focus-visible:ring-offset-2 focus-visible:ring-offset-paper " +
+                    "disabled:opacity-60"
+                  }
+                >
+                  {isReplayBusy ? "…" : "↓ gif"}
+                </button>
+              )}
               {onDownloadReceipt && (
                 <button
                   type="button"

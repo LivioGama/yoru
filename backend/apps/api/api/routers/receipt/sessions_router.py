@@ -327,6 +327,11 @@ class SessionsRouter:
         self.router.get("/{session_id}/receipt.png")(
             self.get_session_receipt_png
         )
+        # TSU-55 — shareable session-replay GIF (authed, owner-only). Same
+        # local-export pivot as receipt.png; the GIF is the share artifact.
+        self.router.get("/{session_id}/replay.gif")(
+            self.get_session_replay_gif
+        )
         self.router.get("/{session_id}/verify")(self.verify_session)
         self.router.delete("/{session_id}/tailer-events", status_code=204)(
             self.delete_tailer_events
@@ -520,6 +525,81 @@ class SessionsRouter:
                 "Cache-Control": "private, no-store",
                 "Content-Disposition": (
                     f'inline; filename="yoru-receipt-{session_id}.png"'
+                ),
+            },
+        )
+
+    def get_session_replay_gif(
+        self,
+        session_id: str,
+        db: SQLSession = Depends(get_session),
+        current_user: str = Depends(require_current_user),
+    ) -> Response:
+        """Render the OWNER's session as a shareable animated replay GIF.
+
+        TSU-55 / share-pivot (approach A): server-side Pillow render so the
+        single TSU-44 scrub is reused — never duplicated in client JS. One
+        frame per EVENT step (idle gaps collapse), capped for server CPU, with
+        a final grade frame. Owner-only; cross-user/unknown 404. Every per-frame
+        label is redaction-scrubbed before it hits the pixels.
+        """
+        from .public_sessions_router import _scrub_public_text  # avoid cycle
+        from .replay_gif import render_replay_gif
+
+        row = db.exec(
+            select(SessionRow).where(SessionRow.id == session_id)
+        ).first()
+        if not _session_visible(row, current_user):
+            raise HTTPException(status_code=404, detail="session not found")
+
+        events = db.exec(
+            select(Event)
+            .where(Event.session_id == session_id)
+            .order_by(Event.ts.asc())
+        ).all()
+
+        # Build scrubbed per-frame steps. Label = the most glanceable scrubbed
+        # string for the event: its path, else a short content snippet.
+        steps: list[dict] = []
+        for e in events:
+            raw_label = e.path or (e.content[:120] if e.content else "") or ""
+            steps.append({
+                "kind": e.kind,
+                "tool": _scrub_public_text(e.tool) if e.tool else None,
+                "label": _scrub_public_text(raw_label),
+                "flagged": bool(e.flags or []),
+            })
+
+        tool_call_count = sum(
+            1 for e in events if e.kind in ("tool_use", "file_change")
+        )
+        error_count = sum(1 for e in events if e.kind == "error")
+        score = compute_score(
+            files_count=row.files_count,
+            tools_called=row.tools_called,
+            tokens_output=row.tokens_output,
+            tool_call_count=tool_call_count,
+            error_count=error_count,
+            flags=row.flags,
+        )
+
+        gif = render_replay_gif(
+            events=steps,
+            grade=score.grade,
+            throughput=score.throughput,
+            reliability=score.reliability,
+            safety=score.safety,
+            tools_count=row.tools_count,
+            files_count=row.files_count,
+            flag_count=len(row.flags or []),
+        )
+        return Response(
+            content=gif,
+            media_type="image/gif",
+            headers={
+                "Cache-Control": "private, no-store",
+                "Content-Disposition": (
+                    f'inline; filename="yoru-replay-{session_id}.gif"'
                 ),
             },
         )

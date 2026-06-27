@@ -436,6 +436,28 @@ export async function copyReceiptPng(id: string): Promise<void> {
   await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })])
 }
 
+/** TSU-55 — download the session-replay GIF (the shareable replay artifact).
+ *  Authed (cookie) + owner-only; 404 on cross-user. */
+export async function downloadReplayGif(id: string): Promise<void> {
+  const res = await fetch(
+    `${API_BASE}/sessions/${encodeURIComponent(id)}/replay.gif`,
+    { credentials: "include" },
+  )
+  if (!res.ok) {
+    const body = await res.text().catch(() => "")
+    throw new ApiError(res.status, body || `Replay render failed (${res.status})`)
+  }
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement("a")
+  a.href = url
+  a.download = `yoru-replay-${id}.gif`
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
+
 /** Read the caller's public-share consent state (set once, never cleared). */
 export async function getShareConsent(): Promise<ShareConsent> {
   return apiFetch<ShareConsent>("/account/share-consent")

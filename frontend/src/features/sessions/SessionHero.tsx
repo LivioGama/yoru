@@ -4,6 +4,7 @@ import { SessionHeroView, type SessionDetail } from "@receipt/ui"
 import {
   copyReceiptPng,
   downloadReceiptPng,
+  downloadReplayGif,
   exportSessionTrail,
   postSummary,
 } from "../../lib/api"
@@ -22,6 +23,7 @@ interface SessionHeroProps {
 export function SessionHero({ session }: SessionHeroProps) {
   const [exporting, setExporting] = useState(false)
   const [receiptBusy, setReceiptBusy] = useState(false)
+  const [replayBusy, setReplayBusy] = useState(false)
   const queryClient = useQueryClient()
 
   async function onExport() {
@@ -65,6 +67,17 @@ export function SessionHero({ session }: SessionHeroProps) {
     }
   }
 
+  async function onDownloadReplay() {
+    setReplayBusy(true)
+    try {
+      await downloadReplayGif(session.id)
+    } catch (err) {
+      toast.error("Couldn't render replay", err instanceof Error ? err.message : String(err))
+    } finally {
+      setReplayBusy(false)
+    }
+  }
+
   const summaryMutation = useMutation({
     mutationFn: () => postSummary(session.id),
     onSuccess: () => {
@@ -87,6 +100,8 @@ export function SessionHero({ session }: SessionHeroProps) {
       onDownloadReceipt={onDownloadReceipt}
       onCopyReceipt={onCopyReceipt}
       isReceiptBusy={receiptBusy}
+      onDownloadReplay={onDownloadReplay}
+      isReplayBusy={replayBusy}
     />
   )
 }
