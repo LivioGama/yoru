@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom"
 import { useQuery } from "@tanstack/react-query"
 import { ApiError, getSession, verifySession, type VerifyResult } from "../lib/api"
 import type { SessionDetail } from "../types/receipt"
+import { SessionReplay } from "@receipt/ui"
 import { SessionHero } from "../features/sessions/SessionHero"
 import { FileChangedRail } from "../features/sessions/FileChangedRail"
 import { CostSparkline } from "../features/sessions/CostSparkline"
@@ -65,6 +66,10 @@ function Receipt({ session }: { session: SessionDetail }) {
         <SessionHero session={session} />
         <CostPanel session={session} />
         <IntegrityBadge sessionId={session.id} />
+        {/* TSU-55 follow-up — live step-through replay (authed dashboard only;
+            owner-side, not the dormant public viewer). Renders above the full
+            timeline so you can scrub the run, then read the detail below. */}
+        <SessionReplay events={session.events ?? []} />
         <section
           aria-label="Timeline"
           className="rounded-sm border border-rule bg-surface"

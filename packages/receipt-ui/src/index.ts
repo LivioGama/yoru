@@ -31,6 +31,7 @@ export { TokenPanel } from "./TokenPanel"
 export { FileChangedRail } from "./FileChangedRail"
 export { ExpandedBody } from "./ExpandedBody"
 export { SessionHeroView } from "./SessionHeroView"
+export { SessionReplay } from "./SessionReplay"
 
 // Timeline
 export { TimelineMinuteMarker } from "./TimelineMinuteMarker"
