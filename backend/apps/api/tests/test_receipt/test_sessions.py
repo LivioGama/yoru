@@ -340,3 +340,77 @@ def test_detail_event_cap(client, db_session, alice_headers):
     assert len(events) == 1000
     assert events[0]["content"] == "evt-5"
     assert events[-1]["content"] == "evt-1004"
+
+
+# ── TSU-54 — shareable receipt PNG (authed, owner-only local export) ─────────
+
+def test_receipt_png_happy_path(client, db_session, alice_headers):
+    db_session.add(SessionRow(
+        id="rp1", user="alice",
+        started_at=BASE_TS, ended_at=BASE_TS + timedelta(minutes=3),
+        tools_count=12, files_count=4,
+        tokens_input=200, tokens_output=400, cost_usd=0.20,
+        flagged=False, flags=[],
+        files_changed=["app.py"], tools_called=["Bash", "Edit"],
+        title="Refactor the auth middleware",
+    ))
+    db_session.add(Event(
+        session_id="rp1", ts=BASE_TS, kind="tool_use", tool="Bash", flags=[],
+    ))
+    db_session.commit()
+
+    resp = client.get("/api/v1/sessions/rp1/receipt.png", headers=alice_headers)
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "image/png"
+    # Owner-private artifact — must not be cached by a shared cache.
+    assert "no-store" in resp.headers.get("cache-control", "")
+    # Real PNG bytes.
+    assert resp.content[:8] == b"\x89PNG\r\n\x1a\n"
+    assert len(resp.content) > 1000
+
+
+def test_receipt_png_404_on_unknown_id(client, alice_headers):
+    resp = client.get(
+        "/api/v1/sessions/nope/receipt.png", headers=alice_headers
+    )
+    assert resp.status_code == 404
+
+
+def test_receipt_png_404_on_cross_user(client, db_session, alice_headers):
+    """Alice can't render bob's receipt — 404, not 403 (no existence leak)."""
+    _seed_four_sessions(db_session)
+    resp = client.get(
+        "/api/v1/sessions/s2/receipt.png", headers=alice_headers
+    )  # s2 = bob
+    assert resp.status_code == 404
+
+
+def test_receipt_png_401_without_bearer(client, db_session):
+    db_session.add(SessionRow(id="rp2", user="alice", started_at=BASE_TS))
+    db_session.commit()
+    resp = client.get("/api/v1/sessions/rp2/receipt.png")
+    assert resp.status_code == 401
+
+
+def test_receipt_png_title_redacted(client, db_session, alice_headers):
+    """A secret/path in the title must be scrubbed before it hits the pixels.
+
+    We can't OCR the PNG here, but the render path calls _scrub_public_text on
+    the title — assert that helper neutralizes the leak so the bake is clean.
+    """
+    from apps.api.api.routers.receipt.public_sessions_router import (
+        _scrub_public_text,
+    )
+    dirty = "deploy with AKIA1234567890ABCDEF from /Users/alice/secret"
+    cleaned = _scrub_public_text(dirty)
+    assert "AKIA1234567890ABCDEF" not in cleaned
+    assert "/Users/alice" not in cleaned
+
+    db_session.add(SessionRow(
+        id="rp3", user="alice", started_at=BASE_TS, title=dirty,
+        tools_count=1, files_count=0, flags=[], tools_called=[],
+    ))
+    db_session.commit()
+    resp = client.get("/api/v1/sessions/rp3/receipt.png", headers=alice_headers)
+    assert resp.status_code == 200
+    assert resp.content[:8] == b"\x89PNG\r\n\x1a\n"

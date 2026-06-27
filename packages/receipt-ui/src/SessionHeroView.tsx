@@ -16,6 +16,12 @@ interface SessionHeroViewProps {
   /** Public URL for the session when `session.is_public` is true —
    *  rendered as a copyable read-only field next to the toggle. */
   publicShareUrl?: string | null
+  /** TSU-54 — local image export. When provided, the hero renders
+   *  "Download PNG" / "Copy image" actions that fetch the self-contained
+   *  receipt PNG (the share artifact is the image, not a hosted URL). */
+  onDownloadReceipt?: () => void
+  onCopyReceipt?: () => void
+  isReceiptBusy?: boolean
 }
 
 const RUBRIC = "font-mono text-caption uppercase tracking-wider text-ink-faint"
@@ -29,6 +35,9 @@ export function SessionHeroView({
   onToggleShare,
   isSharing = false,
   publicShareUrl,
+  onDownloadReceipt,
+  onCopyReceipt,
+  isReceiptBusy = false,
 }: SessionHeroViewProps) {
   const shortId = session.id.slice(0, 4)
   const summary = (session.summary ?? "").trim()
@@ -47,8 +56,44 @@ export function SessionHeroView({
           >
             {session.title ?? session.user_email}
           </h1>
-          {(onExport || onToggleShare) && (
+          {(onExport || onToggleShare || onDownloadReceipt || onCopyReceipt) && (
             <div className="ml-auto flex shrink-0 items-center gap-2">
+              {onDownloadReceipt && (
+                <button
+                  type="button"
+                  onClick={onDownloadReceipt}
+                  disabled={isReceiptBusy}
+                  title="Download a shareable receipt image (PNG)"
+                  className={
+                    "inline-flex items-center gap-1 rounded-sm border border-accent-500 px-2 py-1 " +
+                    "font-mono text-caption uppercase tracking-wider text-accent-500 " +
+                    "hover:bg-accent-500/10 " +
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 " +
+                    "focus-visible:ring-offset-2 focus-visible:ring-offset-paper " +
+                    "disabled:opacity-60"
+                  }
+                >
+                  {isReceiptBusy ? "…" : "↓ png"}
+                </button>
+              )}
+              {onCopyReceipt && (
+                <button
+                  type="button"
+                  onClick={onCopyReceipt}
+                  disabled={isReceiptBusy}
+                  title="Copy the receipt image to your clipboard"
+                  className={
+                    "inline-flex items-center gap-1 rounded-sm border border-rule px-2 py-1 " +
+                    "font-mono text-caption uppercase tracking-wider text-ink-muted " +
+                    "hover:bg-sunken hover:text-ink " +
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 " +
+                    "focus-visible:ring-offset-2 focus-visible:ring-offset-paper " +
+                    "disabled:opacity-60"
+                  }
+                >
+                  {isReceiptBusy ? "…" : "⧉ copy img"}
+                </button>
+              )}
               {onToggleShare && (
                 <button
                   type="button"

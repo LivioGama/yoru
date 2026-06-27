@@ -396,6 +396,46 @@ export async function revokeShareSession(id: string): Promise<ShareResponse> {
   )
 }
 
+// ---- TSU-54 — shareable receipt PNG (local image export) ----
+// The share artifact is the IMAGE the owner exports from their own instance —
+// no hosted URL. Authed (cookie) + owner-only; 404 on cross-user.
+
+/** Fetch the self-contained receipt PNG blob for a session. */
+export async function fetchReceiptPng(id: string): Promise<Blob> {
+  const res = await fetch(
+    `${API_BASE}/sessions/${encodeURIComponent(id)}/receipt.png`,
+    { credentials: "include" },
+  )
+  if (!res.ok) {
+    const body = await res.text().catch(() => "")
+    throw new ApiError(res.status, body || `Receipt render failed (${res.status})`)
+  }
+  return res.blob()
+}
+
+/** Trigger a browser download of the receipt PNG (synthetic <a download>). */
+export async function downloadReceiptPng(id: string): Promise<void> {
+  const blob = await fetchReceiptPng(id)
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement("a")
+  a.href = url
+  a.download = `yoru-receipt-${id}.png`
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
+
+/** Copy the receipt PNG to the clipboard (async-clipboard ClipboardItem).
+ *  Throws if the browser lacks image-clipboard support — caller falls back. */
+export async function copyReceiptPng(id: string): Promise<void> {
+  const blob = await fetchReceiptPng(id)
+  if (typeof ClipboardItem === "undefined" || !navigator.clipboard?.write) {
+    throw new Error("Image clipboard not supported in this browser")
+  }
+  await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })])
+}
+
 /** Read the caller's public-share consent state (set once, never cleared). */
 export async function getShareConsent(): Promise<ShareConsent> {
   return apiFetch<ShareConsent>("/account/share-consent")

@@ -40,6 +40,8 @@ dependencies = [
     "slowapi==0.1.9",
     "stripe>=15.0.1",
     "psycopg[binary]>=3.1",
+    # --- TSU-54 shareable receipt PNG (server-side render, self-hosted) ---
+    "Pillow>=10.2,<12",
 ]
 
 [project.optional-dependencies]

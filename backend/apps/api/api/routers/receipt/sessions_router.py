@@ -321,6 +321,12 @@ class SessionsRouter:
         self.router.get("/{session_id}/trail", response_model=TrailOut)(
             self.get_session_trail
         )
+        # TSU-54 — self-contained shareable receipt PNG (authed, owner-only).
+        # The share artifact is the IMAGE the owner exports locally; no hosted
+        # viewer (pivot: share = the PNG, not a public URL).
+        self.router.get("/{session_id}/receipt.png")(
+            self.get_session_receipt_png
+        )
         self.router.get("/{session_id}/verify")(self.verify_session)
         self.router.delete("/{session_id}/tailer-events", status_code=204)(
             self.delete_tailer_events
@@ -448,6 +454,74 @@ class SessionsRouter:
                 "events": events_out,
                 "score": score_out,
             }
+        )
+
+    def get_session_receipt_png(
+        self,
+        session_id: str,
+        db: SQLSession = Depends(get_session),
+        current_user: str = Depends(require_current_user),
+    ) -> Response:
+        """Render a self-contained shareable receipt PNG for the OWNER's session.
+
+        TSU-54 / the share-pivot: the share artifact is this image, generated
+        on the self-hosted instance from the owner's authed session — NOT the
+        dormant public-sessions API. Everything the viewer needs is baked in
+        (grade + Throughput/Reliability/Safety subscores + tool/file/flag
+        counts + title) and the only link is a plain ``yoru.sh`` wordmark.
+
+        Cross-user/unknown ids 404 (same as detail) so the PNG endpoint can't
+        be used to probe other users' sessions. The title is redaction-scrubbed
+        (TSU-44) before it touches the pixels.
+        """
+        from .public_sessions_router import _scrub_public_text  # avoid cycle
+        from .receipt_card import render_receipt_png
+
+        row = db.exec(
+            select(SessionRow).where(SessionRow.id == session_id)
+        ).first()
+        if not _session_visible(row, current_user):
+            raise HTTPException(status_code=404, detail="session not found")
+
+        # Score subscores need the per-session tool/error counts — derive them
+        # from the event stream, same as get_session_detail.
+        events = db.exec(
+            select(Event).where(Event.session_id == session_id)
+        ).all()
+        tool_call_count = sum(
+            1 for e in events if e.kind in ("tool_use", "file_change")
+        )
+        error_count = sum(1 for e in events if e.kind == "error")
+        score = compute_score(
+            files_count=row.files_count,
+            tools_called=row.tools_called,
+            tokens_output=row.tokens_output,
+            tool_call_count=tool_call_count,
+            error_count=error_count,
+            flags=row.flags,
+        )
+
+        png = render_receipt_png(
+            title=_scrub_public_text(row.title) or "Agent session trail",
+            grade=score.grade,
+            overall=score.overall,
+            throughput=score.throughput,
+            reliability=score.reliability,
+            safety=score.safety,
+            tools_count=row.tools_count,
+            files_count=row.files_count,
+            flag_count=len(row.flags or []),
+        )
+        return Response(
+            content=png,
+            media_type="image/png",
+            headers={
+                # Owner-private artifact — never let a shared cache hold it.
+                "Cache-Control": "private, no-store",
+                "Content-Disposition": (
+                    f'inline; filename="yoru-receipt-{session_id}.png"'
+                ),
+            },
         )
 
     def delete_tailer_events(
