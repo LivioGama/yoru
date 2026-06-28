@@ -304,19 +304,26 @@ All green → you're live.
 
 ## Upgrading
 
-Pin a Docker tag and upgrade on your own cadence:
+Yoru ships **no prebuilt image** — the self-host stack builds the server from
+source via `docker-compose`. Upgrade on your own cadence by pulling the new
+source and rebuilding:
 
 ```bash
-# Pull the new image, restart, let the app auto-apply schema migrations on boot
-docker pull ghcr.io/helios-code/yoru-backend:latest
-docker stop yoru-backend && docker rm yoru-backend
-docker run -d --name yoru-backend --env-file .env -p 8002:8002 \
-  -v /srv/yoru-data:/data --restart unless-stopped \
-  ghcr.io/helios-code/yoru-backend:latest
+# From your checkout, on your own schedule:
+git pull
+docker compose -f docker-compose.prod.yml up -d --build
 ```
 
 Schema changes are applied automatically at startup for both SQLite and
-Postgres. Watch the release notes — breaking changes are tagged with a 🚨.
+Postgres. Skim the [release notes](https://github.com/TsukumoHQ/yoru/releases)
+first — breaking changes are tagged with a 🚨.
+
+To find out whether you're behind without pulling anything, the CLI can check a
+running instance (notify-only — it never touches your container):
+
+```bash
+yoru update --server https://your-host   # or bare --server for your configured one
+```
 
 ---
 

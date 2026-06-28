@@ -82,10 +82,16 @@ async def lifespan(app: FastAPI):
     yield
 
 
+# Single source of truth for the running version: the RECEIPT_VERSION build arg
+# (set at docker-compose / release build time), defaulting to the current release.
+# Exposed on GET /api/v1/config so the CLI's `yoru update --server` can compare it
+# against the latest TsukumoHQ/yoru release tag.
+_API_VERSION = os.getenv("RECEIPT_VERSION", "0.2.0")
+
 app = FastAPI(
     lifespan=lifespan,
     title="Receipt API",
-    version="0.1.0-receipt",
+    version=_API_VERSION,
     description="Audit-grade session receipts for autonomous AI coding agents.",
     docs_url="/api/docs",
     redoc_url="/api/redoc",
@@ -263,6 +269,7 @@ def instance_config() -> dict:
     Lets the dashboard hide billing/upgrade/multi-tenant UI on a self-hosted
     instance instead of shipping dead CTAs."""
     return {
+        "version": _API_VERSION,
         "billing_enabled": _BILLING_ENABLED,
         "auth_provider": os.getenv("AUTH_PROVIDER", "local").strip().lower(),
         "instance_name": os.getenv("INSTANCE_NAME", "Yoru"),
