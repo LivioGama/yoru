@@ -89,7 +89,9 @@ function CostPanel({ session }: { session: SessionDetail }) {
   const outTok = session.tokens_output ?? 0
   return (
     <div className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-sm border border-rule bg-surface px-4 py-3">
-      <span className="font-mono text-micro uppercase tracking-wider text-ink-faint">Cost</span>
+      <span className="font-mono text-micro uppercase tracking-wider text-ink-faint">
+        Cost <span className="lowercase text-ink-faint">· api-equivalent</span>
+      </span>
       <CostSparkline events={session.events ?? []} totalUsd={session.cost_usd ?? 0} />
       <span className="font-mono text-caption text-ink-muted tabular-nums">
         {inTok.toLocaleString()} in · {outTok.toLocaleString()} out tokens

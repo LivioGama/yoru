@@ -30,7 +30,7 @@ export function SessionsTable({ sessions, workspaceNameById }: SessionsTableProp
         <div className={headerCellCls}>Started</div>
         <div className={headerCellCls}>Duration</div>
         <div className={headerCellCls}>Tools</div>
-        <div className={headerCellCls}>Cost</div>
+        <div className={headerCellCls} title="api-equivalent — what this would cost at API per-token rates; a value-consumed reference, not your wallet">Cost</div>
         <div className={headerCellCls}>Flags</div>
       </div>
       <ul role="list" className="divide-y divide-rule">

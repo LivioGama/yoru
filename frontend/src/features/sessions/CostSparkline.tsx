@@ -58,7 +58,7 @@ export function CostSparkline({
   return (
     <div
       className={"inline-flex items-center gap-2 " + className}
-      aria-label={`Cumulative cost sparkline · total $${totalUsd.toFixed(4)}`}
+      aria-label={`Cumulative api-equivalent cost sparkline · total $${totalUsd.toFixed(4)} (api-equivalent, not wallet spend)`}
     >
       <svg
         width={width}
