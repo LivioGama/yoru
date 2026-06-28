@@ -341,6 +341,14 @@ yoru update --server https://your-host   # or bare --server for your configured 
   auto-generates to `backend/data/.auth_jwt_secret` — fine for a single box,
   but set it yourself when running multiple replicas so tokens stay valid
   across them.
+- **Abuse guards** (pre-viral; on by default in prod): with `ENV=production`
+  the public read route (`/api/v1/public/sessions/{id}`) is rate-limited
+  (60/min/IP) automatically — set `RATELIMIT_ENABLED=0` to opt out, or `=1` to
+  force it on in dev. Ingest (`/sessions/events`) is always token-bucket
+  rate-limited (`RATE_LIMIT_INGEST_PER_MIN`/`_BURST`), body-capped
+  (`MAX_BODY_SIZE_BYTES`, default 256 KiB → 413), and batch-capped (≤1000
+  events/request → 422). The og:image render validates the id and times out
+  upstream fetches; front it with your proxy/CDN for edge-level DoS protection.
 - **Secrets hygiene**: `AUTH_JWT_SECRET`, `SUPABASE_JWT_SECRET`, and
   `SMTP_PASSWORD` never need to reach any client. Keep them on the backend
   process only.
