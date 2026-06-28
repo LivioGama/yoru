@@ -137,7 +137,23 @@ class SetupService:
         except ModuleNotFoundError as e:
             return {"ok": False, "error": f"Missing database driver: {e}"}
         except Exception as e:
-            return {"ok": False, "error": str(e)}
+            # Map the common first-run failures to actionable guidance instead
+            # of surfacing a raw driver traceback in the wizard.
+            raw = str(e)
+            low = raw.lower()
+            if "could not translate host name" in low or "name or service not known" in low:
+                hint = "Database host not found — check the hostname in your connection URL."
+            elif "connection refused" in low or "could not connect" in low:
+                hint = "Database server unreachable — check it's running and the host/port are correct."
+            elif "permission denied" in low or "authentication failed" in low or "password authentication" in low:
+                hint = "Auth/permission denied — check the username, password, or file permissions."
+            elif "does not exist" in low or "unknown database" in low:
+                hint = "That database doesn't exist yet — create it first, or use sqlite:///path/to/receipt.db for a local file."
+            elif "no such module" in low or "can't load plugin" in low:
+                hint = "Unrecognized URL scheme — use sqlite:///… or postgresql://user:pwd@host:5432/db."
+            else:
+                hint = "Connection failed."
+            return {"ok": False, "error": f"{hint} ({raw[:160]})"}
 
     # ── env persistence ──────────────────────────────────────────────────
     def _upsert_env(self, updates: dict[str, str]) -> None:

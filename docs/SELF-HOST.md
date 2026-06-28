@@ -67,6 +67,7 @@ Everything here is optional — the defaults are fully local.
 | **Email** | none — welcome/invite mail skipped | SMTP via `EMAIL_PROVIDER=smtp` + `SMTP_*` |
 | **Social sign-in** | n/a | GitHub OAuth (configured in your Supabase project) |
 | **Billing** | off — everything unlocked | n/a — self-host has no paywall |
+| **CORS** | localhost dev origins (5173/5174/3000) | your real origin(s) — `CORS_ALLOWED_ORIGINS=https://yoru.acme.com` |
 
 For an internet-exposed instance, set `SETUP_TOKEN=<random>` so only someone
 holding the token can run the wizard, and pin `AUTH_JWT_SECRET` (the wizard does
@@ -347,6 +348,23 @@ yoru update --server https://your-host   # or bare --server for your configured 
   writes; a leaked anon key still only exposes what a user's own row grants.
 
 ---
+
+## Troubleshooting the first run
+
+The backend fails fast with an actionable log line on the common misconfigs.
+At startup it logs a `startup_config` line (`db_backend` / `auth_provider` /
+`billing_enabled` / `cors_origins`) so you can confirm what actually booted.
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| `db_init_failed` at startup | bad `RECEIPT_DB_URL`: unwritable SQLite path, or an unreachable / missing Postgres DB | point it at a writable path (`sqlite:////app/data/receipt.db` in Docker) or a reachable Postgres whose database already exists |
+| Dashboard calls blocked by CORS | your instance isn't on `localhost`; the default origins are dev-only | set `CORS_ALLOWED_ORIGINS=https://yoru.acme.com` (your real dashboard origin) |
+| `AUTH_PROVIDER=supabase but missing required env …` | switched to Supabase auth without the `SUPABASE_*` block | set `SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_JWT_SECRET`, or use `AUTH_PROVIDER=local` (the zero-config default) |
+| `billing_enabled_without_stripe_key` warning | copied a `.env` with `BILLING_ENABLED=true` from elsewhere | self-host wants `BILLING_ENABLED=false` (the default) — there is no paywall |
+| Port `8002` already in use | another process holds the port | free it, or remap the host side in `docker-compose.yml` (`"<host>:8002"`) |
+
+Run `yoru doctor` from a paired CLI to check the live instance end-to-end
+(config → `/health/ready` probes → token → hook).
 
 ## When to reach out
 

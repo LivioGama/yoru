@@ -68,10 +68,66 @@ _logger = get_logger(__name__)
 _logger.info("sentry_initialized", extra={"initialized": init_sentry()})
 
 
+def _preflight_config() -> None:
+    """Fail fast (or warn) on first-run misconfig with an actionable message,
+    then log a one-line summary of the resolved stack so a self-hoster can
+    confirm what actually booted. Keep this cheap — no DB/network calls."""
+    auth_provider = os.getenv("AUTH_PROVIDER", "local").strip().lower()
+    if auth_provider == "supabase":
+        missing = [
+            v for v in ("SUPABASE_URL", "SUPABASE_ANON_KEY", "SUPABASE_JWT_SECRET")
+            if not os.getenv(v, "").strip()
+        ]
+        if missing:
+            raise RuntimeError(
+                "AUTH_PROVIDER=supabase but missing required env: "
+                f"{', '.join(missing)}. Set them, or use AUTH_PROVIDER=local "
+                "for the zero-config self-host default. See docs/SELF-HOST.md."
+            )
+
+    billing_on = os.getenv("BILLING_ENABLED", "false").strip().lower() == "true"
+    if billing_on and not os.getenv("STRIPE_API_KEY", "").strip():
+        _logger.warning(
+            "billing_enabled_without_stripe_key",
+            extra={"hint": "BILLING_ENABLED=true with no STRIPE_API_KEY — "
+                   "checkout runs in mock mode. Self-host normally leaves "
+                   "BILLING_ENABLED=false."},
+        )
+
+    db_url = os.getenv("RECEIPT_DB_URL", "").strip()
+    db_backend = "postgres" if db_url.startswith(("postgres://", "postgresql://")) else "sqlite"
+    _logger.info(
+        "startup_config",
+        extra={
+            "db_backend": db_backend,
+            "auth_provider": auth_provider,
+            "billing_enabled": billing_on,
+            "cors_origins": len(_cors_origins),
+        },
+    )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     configure_structured_logger()
-    init_db()
+    _preflight_config()
+    try:
+        init_db()
+    except Exception as exc:
+        _logger.error(
+            "db_init_failed",
+            extra={
+                "error": str(exc),
+                "error_type": type(exc).__name__,
+                "receipt_db_url": os.getenv(
+                    "RECEIPT_DB_URL", "(default: sqlite at backend/data/receipt.db)"
+                ),
+                "hint": "Database init failed. For sqlite the file path must be "
+                "writable; for postgres the server must be reachable and the DB "
+                "must exist. See docs/SELF-HOST.md.",
+            },
+        )
+        raise
     # Warm the pricing table (disk cache if fresh, else LiteLLM fetch). Failing
     # is non-fatal — lookup_rates() will use the static fallback.
     try:
