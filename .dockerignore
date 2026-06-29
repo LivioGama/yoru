@@ -1,0 +1,10 @@
+# The only builds that use the REPO ROOT as their Docker context are the
+# install-smoke clean rooms (install-smoke/*.Dockerfile), and they only need
+# install-smoke/. Everything else (the 5GB+ of backend/data/*.db, node_modules,
+# .worktrees, build output, .git) would just bloat the context — and a live
+# SQLite file mid-write even breaks the tar. Keep the context tiny + deterministic.
+#
+# Note: the backend image builds from `./backend` context (see docker-compose.yml),
+# NOT the repo root, so this file does not affect it.
+*
+!install-smoke
