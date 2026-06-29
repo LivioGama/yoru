@@ -52,7 +52,7 @@ That's it. With the defaults you now have:
 Then point the CLI at your instance (see [CLI pairing](#5-configure-the-cli-to-talk-to-your-backend)):
 
 ```bash
-pip install yoru-cli
+pipx install yoru-cli                       # or: uv tool install yoru-cli
 yoru init --server https://yoru.acme.com
 ```
 
@@ -269,9 +269,12 @@ Users of your instance install the public CLI from PyPI and point it at your
 server. **`--server` is required** — there is no default server to fall back to:
 
 ```bash
-pip install yoru-cli
+pipx install yoru-cli                       # or: uv tool install yoru-cli
 yoru init --server https://yoru.acme.com
 ```
+
+> Prefer `pipx`/`uv` over a bare `pip install` — on Homebrew/Debian Python the
+> latter fails with `error: externally-managed-environment` (PEP 668).
 
 The browser opens your dashboard's pairing page for approval. From there the CLI
 writes `~/.config/yoru/config.json` with your server URL and a paired token.

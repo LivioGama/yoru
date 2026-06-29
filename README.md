@@ -49,16 +49,21 @@ want one). Prefer the terminal? Run it headless:
 make setup            # interactive: pick a DB, create the admin
 ```
 
-Then point the CLI at your instance:
+Then point the CLI at your instance (needs Python ≥ 3.10):
 
 ```bash
-pip install yoru-cli
-yoru init --server https://yoru.acme.com
+pipx install yoru-cli                       # isolated, no system-Python conflicts
+yoru init --server https://yoru.acme.com    # writes config + hook, pairs this machine
 ```
+
+> Use `pipx` (or `uv tool install yoru-cli`). A bare `pip install yoru-cli` fails
+> on Homebrew/Debian Python with `error: externally-managed-environment` (PEP 668).
+> No pipx? A venv works: `python3 -m venv .venv && .venv/bin/pip install yoru-cli`.
 
 `--server` is required — there is no default. `yoru init` installs the hook into
 `~/.claude/hooks/`, registers it in `~/.claude/settings.json`, and pairs the
-machine with a device code. Run `yoru doctor` if anything looks off.
+machine with a device code. It's idempotent — re-run with `--force` to repoint.
+Run `yoru doctor` if anything looks off.
 
 ## Core concepts
 
@@ -193,7 +198,7 @@ Full walkthrough — Postgres, GitHub OAuth, SMTP, and the Supabase path — in
 | `packages/receipt-ui/` | Shared component library consumed by `frontend/` |
 | `docs/` | Self-host guide, architecture, hook contract |
 
-The CLI lives in a separate MIT repo: [github.com/TsukumoHQ/cli-yoru](https://github.com/TsukumoHQ/cli-yoru) · `pip install yoru-cli`.
+The CLI lives in a separate MIT repo: [github.com/TsukumoHQ/cli-yoru](https://github.com/TsukumoHQ/cli-yoru) · `pipx install yoru-cli`.
 
 > Naming note: the CLI is `yoru-cli`, but some internals are still half-migrated from the project's old name (`receipt`) — `RECEIPT_*` env vars, the `rcpt_` token prefix, `receipt.db`, `packages/receipt-ui`. These are load-bearing; don't rename them casually.
 
