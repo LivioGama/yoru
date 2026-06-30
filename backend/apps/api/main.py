@@ -227,6 +227,11 @@ app.include_router(export_router.get_router(), prefix="/api/v1")
 sessions_router = SessionsRouter()
 app.include_router(sessions_router.get_router(), prefix="/api/v1")
 
+# Cross-session, group-scoped activity feed (curated event stream). Separate
+# router so /activity isn't shadowed by the sessions router's /{session_id}.
+from apps.api.api.routers.receipt.activity_router import ActivityRouter  # noqa: E402
+app.include_router(ActivityRouter().get_router(), prefix="/api/v1")
+
 # Issue #79 — public (unauth) reader for sessions flipped public via
 # /sessions/{id}/share. Mounted separately so the /public/ prefix lives
 # next to /sessions/ without the authed router knowing about it.
