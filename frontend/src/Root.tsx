@@ -21,6 +21,7 @@ import { TokensPage } from "./pages/TokensPage"
 import { WorkspacesPage } from "./pages/WorkspacesPage"
 import { SessionDetailPage } from "./pages/SessionDetailPage"
 import { SessionsListPage } from "./pages/SessionsListPage"
+import { FeedPage } from "./pages/FeedPage"
 import { SetupPage } from "./pages/SetupPage"
 import { TeamsPage } from "./pages/TeamsPage"
 import { SignInPage } from "./pages/SignInPage"
@@ -48,6 +49,7 @@ const router = createBrowserRouter([
     errorElement: <ErrorPage />,
     children: [
       { path: "/", element: <SessionsListPage />, errorElement: <ErrorPage /> },
+      { path: "/feed", element: <FeedPage />, errorElement: <ErrorPage /> },
       { path: "/welcome", element: <WelcomePage />, errorElement: <ErrorPage /> },
       { path: "/s/:id", element: <SessionDetailPage />, errorElement: <ErrorPage /> },
       // TODO: nest under a /settings shell once US-21 tabs land.
