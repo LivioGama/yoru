@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from sqlalchemy import func
+from sqlalchemy import case, func
 from sqlmodel import Session as SQLSession, select
 
 import os
@@ -385,6 +385,44 @@ class SessionsRouter:
         total = db.exec(count_stmt).one()
 
         items = [SessionListItem.model_validate(r.model_dump()) for r in rows]
+
+        # Grade each card with the SAME compute_score() the detail page uses, so
+        # the feed and the detail never disagree. The two event-derived inputs
+        # (tool_call_count, error_count) are aggregated for the WHOLE page in one
+        # GROUP BY — O(1) extra query, not N+1.
+        ids = [r.id for r in rows]
+        if ids:
+            count_rows = db.exec(
+                select(
+                    Event.session_id,
+                    func.coalesce(
+                        func.sum(
+                            case(
+                                (Event.kind.in_(("tool_use", "file_change")), 1),
+                                else_=0,
+                            )
+                        ),
+                        0,
+                    ),
+                    func.coalesce(
+                        func.sum(case((Event.kind == "error", 1), else_=0)), 0
+                    ),
+                )
+                .where(Event.session_id.in_(ids))
+                .group_by(Event.session_id)
+            ).all()
+            counts = {sid: (int(tc), int(ec)) for sid, tc, ec in count_rows}
+            for item, row in zip(items, rows):
+                tool_call_count, error_count = counts.get(item.id, (0, 0))
+                item.grade = compute_score(
+                    files_count=row.files_count,
+                    tools_called=row.tools_called,
+                    tokens_output=row.tokens_output,
+                    tool_call_count=tool_call_count,
+                    error_count=error_count,
+                    flags=row.flags,
+                ).grade
+
         return SessionListResponse(
             items=items, total=total, limit=limit, offset=offset
         )

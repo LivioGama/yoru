@@ -86,6 +86,59 @@ def test_list_scoped_to_current_user(client, db_session, alice_headers):
     assert body["offset"] == 0
 
 
+def test_list_includes_grade_matching_detail_compute(
+    client, db_session, alice_headers
+):
+    """The feed card's grade is the SAME compute_score() the detail uses, so the
+    two never disagree. The event-derived inputs (tool_call_count, error_count)
+    come from the page's events, batched — verify the resulting grade matches."""
+    from apps.api.api.routers.receipt.scoring import compute_score
+
+    db_session.add(
+        SessionRow(
+            id="g1", user="alice", started_at=BASE_TS,
+            files_count=1, tokens_output=500,
+            tools_called=["Bash", "Edit"], flagged=False, flags=[],
+        )
+    )
+    # 2 tool/file events + 1 error → tool_call_count=2, error_count=1.
+    db_session.add(Event(session_id="g1", ts=BASE_TS, kind="tool_use", tool="Bash"))
+    db_session.add(Event(session_id="g1", ts=BASE_TS, kind="file_change", tool="Edit"))
+    db_session.add(Event(session_id="g1", ts=BASE_TS, kind="error"))
+    db_session.commit()
+
+    expected = compute_score(
+        files_count=1, tools_called=["Bash", "Edit"], tokens_output=500,
+        tool_call_count=2, error_count=1, flags=[],
+    ).grade
+
+    resp = client.get("/api/v1/sessions", headers=alice_headers)
+    assert resp.status_code == 200
+    items = resp.json()["items"]
+    assert len(items) == 1
+    assert items[0]["id"] == "g1"
+    assert items[0]["grade"] == expected
+    assert items[0]["grade"] in ("A", "B", "C", "D", "F")
+
+
+def test_list_grade_only_over_visible_sessions(client, db_session, alice_headers):
+    """Confidentiality: grade is derived only from events of sessions the caller
+    can already see. bob's session + events never enter alice's feed or its
+    grade computation (the batch counts filter on the visible page's ids)."""
+    _seed_four_sessions(db_session)
+    # Give bob's s2 events — they must not surface for alice in any form.
+    db_session.add(Event(session_id="s2", ts=BASE_TS, kind="tool_use", tool="Bash"))
+    db_session.add(Event(session_id="s2", ts=BASE_TS, kind="error"))
+    db_session.commit()
+
+    resp = client.get("/api/v1/sessions", headers=alice_headers)
+    assert resp.status_code == 200
+    items = resp.json()["items"]
+    # Only alice's two sessions; bob's s2 is absent, grade present on each.
+    assert {i["id"] for i in items} == {"s1", "s3"}
+    assert all(i["grade"] in ("A", "B", "C", "D", "F") for i in items)
+
+
 def test_filter_flagged_true(client, db_session, alice_headers):
     _seed_four_sessions(db_session)
     resp = client.get(

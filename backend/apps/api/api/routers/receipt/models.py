@@ -314,6 +314,10 @@ class SessionListItem(SQLModel):
     # Opt-in public share flag (#79) — surfaced so the dashboard can render
     # the "Make public" toggle state without a second round trip.
     is_public: bool = False
+    # A–F verdict, so the feed/list can lead with the grade without fetching
+    # each session's detail. Same compute_score() the detail page uses, so the
+    # card and the detail never disagree. None when not yet computable.
+    grade: Optional[str] = None
 
 
 class SessionListResponse(SQLModel):
