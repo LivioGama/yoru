@@ -327,6 +327,29 @@ class SessionListResponse(SQLModel):
     offset: int
 
 
+# ---------- Activity feed (cross-session event stream) ----------
+
+class ActivityItem(SQLModel):
+    """One curated event in the group-scoped activity feed: what an agent DID
+    (a tool call, a file edit, an error) — not a session summary. `user`/`agent`
+    are the owning session's, so the row reads 'who · which agent — action'."""
+    id: int                 # event id
+    session_id: str
+    ts: datetime
+    user: str               # session owner (a group-mate)
+    agent: str
+    kind: str               # tool_use | file_change | error
+    tool: Optional[str] = None
+    path: Optional[str] = None
+    flags: list[str] = []
+
+
+class ActivityResponse(SQLModel):
+    items: list[ActivityItem]
+    limit: int
+    offset: int
+
+
 # ---------- Detail ----------
 
 class EventOut(SQLModel):
