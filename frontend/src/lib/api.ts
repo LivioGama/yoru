@@ -90,6 +90,8 @@ function qs(f: Filters): string {
   if (f.flag_only) p.set("flagged", "true")
   if (f.min_cost !== undefined) p.set("min_cost", String(f.min_cost))
   if (f.workspace_id) p.set("workspace_id", f.workspace_id)
+  if (f.limit !== undefined) p.set("limit", String(f.limit))
+  if (f.offset !== undefined) p.set("offset", String(f.offset))
   return p.toString()
 }
 
@@ -108,6 +110,7 @@ interface RawSession {
   title?: string | null
   workspace_id?: string | null
   is_public?: boolean
+  grade?: string | null
 }
 
 // Backend rule_id (snake_case, per red_flags.py) → frontend RedFlagKind (kebab).
@@ -172,6 +175,7 @@ function mapSession(r: RawSession): import("../types/receipt").Session {
     title: r.title ?? null,
     workspace_id: r.workspace_id ?? null,
     is_public: Boolean(r.is_public),
+    grade: r.grade ?? null,
   }
 }
 

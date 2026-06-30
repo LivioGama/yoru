@@ -31,6 +31,9 @@ export interface Session {
   /** Opt-in public share flag (#79). True when POST /sessions/{id}/share
    *  has flipped this session visible at /s/{id}. Defaults false. */
   is_public?: boolean
+  /** A–F verdict (TSU-249), so the feed card can lead with the grade without
+   *  fetching each session's detail. Same compute_score the detail uses. */
+  grade?: string | null
 }
 
 export interface SessionEvent {
@@ -100,6 +103,10 @@ export interface Filters {
   flag_only?: boolean
   min_cost?: number
   workspace_id?: string
+  /** Pagination — the feed pages through with offset (backend list_sessions
+   *  already supports limit/offset, started_at DESC). */
+  limit?: number
+  offset?: number
 }
 
 export interface SessionList {

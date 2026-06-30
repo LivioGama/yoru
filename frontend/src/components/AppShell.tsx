@@ -11,6 +11,7 @@ type NavItem = { to: string; label: string; end?: boolean; billingOnly?: boolean
 
 const NAV: NavItem[] = [
   { to: "/",                        label: "/sessions",       end: true },
+  { to: "/feed",                    label: "/feed" },
   { to: "/settings/workspaces",     label: "/workspaces" },
   { to: "/settings/teams",          label: "/teams" },
   { to: "/settings/tokens",         label: "/tokens" },
