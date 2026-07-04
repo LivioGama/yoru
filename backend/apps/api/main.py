@@ -335,6 +335,7 @@ def instance_config() -> dict:
         "auth_provider": os.getenv("AUTH_PROVIDER", "local").strip().lower(),
         "instance_name": os.getenv("INSTANCE_NAME", "Yoru"),
         "single_org": not _BILLING_ENABLED,
+        "cors_origins": _cors_origins,
     }
 
 health_deep_router = HealthDeepRouter()
