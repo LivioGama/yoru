@@ -47,6 +47,14 @@ _SECRET_PATTERNS: dict[str, re.Pattern[str]] = {
     # Anthropic keys: `sk-ant-api03-...` ~100 chars.
     "secret_anthropic": re.compile(r"sk-ant-[A-Za-z0-9_-]{90,}"),
     "secret_pgp": re.compile(r"-----BEGIN PGP PRIVATE KEY BLOCK-----"),
+    # Yoru's OWN credentials: API keys (yoru_ak_) and hook/service tokens
+    # (rcpt_, rcpt_u_, rcpt_s_, rcpt_reset_). An agent leaking the very key
+    # that authenticates its receipts must be flagged like any other secret.
+    # 20+ body chars so prose mentions of a bare prefix (or the
+    # `rcpt_session` cookie name) don't trip.
+    "secret_yoru_token": re.compile(
+        r"(?:yoru_ak_|rcpt_(?:u_|s_|reset_)?)[A-Za-z0-9_-]{20,}"
+    ),
 }
 
 # --- shell rules: tool_use + tool in {Bash, Shell} + content regex ---

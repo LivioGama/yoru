@@ -35,9 +35,14 @@ from apps.api.api.services.auth.provider import get_auth_provider
 
 from .auth_sessions_model import AuthSession
 from .db import get_session
-from .deps import _naive_utc_now, require_current_user
+from .deps import _naive_utc_now, deny_api_key_auth, require_current_user
 from .email.welcome import send_welcome_email
 from .models import (
+    API_KEY_SCOPES,
+    ApiKey,
+    ApiKeyCreateIn,
+    ApiKeyCreateOut,
+    ApiKeyListItem,
     CliToken,
     DeviceAuthorization,
     DeviceAuthorizationToken,
@@ -74,6 +79,7 @@ _WELCOME_EMAIL_DEDUPE_WINDOW = timedelta(minutes=5)
 _TOKEN_PREFIX = "rcpt_"           # legacy prefix — still accepted on read
 _USER_TOKEN_PREFIX = "rcpt_u_"    # Phase B: new user-scoped tokens
 _SERVICE_TOKEN_PREFIX = "rcpt_s_" # Phase B: new org/service tokens
+_API_KEY_PREFIX = "yoru_ak_"      # Long-lived API keys (headless/CI)
 _BEARER_PREFIX = "Bearer "
 _RESET_TOKEN_PREFIX = "rcpt_reset_"
 _RESET_TOKEN_TTL = timedelta(hours=1)
@@ -200,6 +206,25 @@ class AuthRouter:
             status_code=status.HTTP_204_NO_CONTENT,
             response_model=None,
         )(self.revoke_token)
+        self.router.post(
+            "/api-keys",
+            response_model=ApiKeyCreateOut,
+            status_code=status.HTTP_201_CREATED,
+        )(self.create_api_key)
+        self.router.get(
+            "/api-keys",
+            response_model=list[ApiKeyListItem],
+        )(self.list_api_keys)
+        self.router.delete(
+            "/api-key/{key_id}",
+            status_code=status.HTTP_204_NO_CONTENT,
+            response_model=None,
+        )(self.revoke_api_key)
+        self.router.post(
+            "/api-key/{key_id}/rotate",
+            response_model=ApiKeyCreateOut,
+            status_code=status.HTTP_201_CREATED,
+        )(self.rotate_api_key)
         # Device-pair flow. Rate limits were attempted via slowapi decorators
         # (issue #54 P1) but the wrapping broke FastAPI body introspection —
         # endpoints started returning 422 "query: Field required" for valid
@@ -259,6 +284,7 @@ class AuthRouter:
     def mint_token(
         self,
         body: HookTokenMintIn,
+        request: Request,
         db: DBSession = Depends(get_session),
         current_user: str = Depends(require_current_user),
     ) -> HookTokenMintOut:
@@ -268,7 +294,11 @@ class AuthRouter:
         v1 hardening: the `user` in `body` is IGNORED. Identity is taken
         from the session cookie (Supabase JWT) or bearer. Previously this
         endpoint was unauth and trusted body.user — see wave-XX CVE note.
+
+        API-key callers are refused (403): a leaked key must not mint
+        hook-tokens that outlive its revocation.
         """
+        deny_api_key_auth(request)
         raw = _USER_TOKEN_PREFIX + secrets.token_urlsafe(24)
         token_hash = hashlib.sha256(raw.encode("utf-8")).hexdigest()
         row = CliToken(
@@ -522,6 +552,191 @@ class AuthRouter:
             db.add(row)
             db.commit()
         return None
+
+    # ---------- API keys (long-lived, headless/CI) ----------
+
+    @staticmethod
+    def _mint_api_key_row(
+        user: str,
+        label: str | None,
+        scopes: list[str],
+        expires_at: object,
+    ) -> tuple[str, ApiKey]:
+        """Mint (raw_value, unsaved row). Shared by create + rotate."""
+        raw = _API_KEY_PREFIX + secrets.token_urlsafe(32)
+        key_hash = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+        key_prefix = raw[len(_API_KEY_PREFIX):len(_API_KEY_PREFIX) + 8]
+        row = ApiKey(
+            id=uuid.uuid4().hex,
+            user=user,
+            key_hash=key_hash,
+            key_prefix=key_prefix,
+            label=label,
+            scopes=json.dumps(sorted(scopes)),
+            created_at=_naive_utc_now(),
+            expires_at=expires_at,
+        )
+        return raw, row
+
+    @staticmethod
+    def _api_key_out(raw: str, row: ApiKey) -> ApiKeyCreateOut:
+        return ApiKeyCreateOut(
+            key=raw,
+            id=row.id,
+            key_prefix=row.key_prefix,
+            label=row.label,
+            scopes=json.loads(row.scopes),
+            created_at=row.created_at,
+            expires_at=row.expires_at,
+        )
+
+    def create_api_key(
+        self,
+        body: ApiKeyCreateIn,
+        request: Request,
+        db: DBSession = Depends(get_session),
+        current_user: str = Depends(require_current_user),
+    ) -> ApiKeyCreateOut:
+        """Create a long-lived API key for the authenticated caller. The raw
+        value is returned **once**; only the sha256 hash is persisted. Store
+        it in a secrets manager or env var — it is a full bearer credential
+        and must never be logged or committed.
+
+        Scopes default to `['ingest']` (POST /sessions/events only) — the
+        least privilege a CI runner needs. Add `'read'` explicitly for
+        programmatic reads.
+
+        API-key callers are refused (403) so a leaked key can't mint
+        replacements for itself.
+        """
+        deny_api_key_auth(request)
+
+        scopes = body.scopes if body.scopes is not None else ["ingest"]
+        bad = set(scopes) - API_KEY_SCOPES
+        if bad or not scopes:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"scopes must be a non-empty subset of "
+                       f"{sorted(API_KEY_SCOPES)}",
+            )
+
+        expires_at = body.expires_at
+        if expires_at is not None:
+            if expires_at.tzinfo is not None:
+                expires_at = expires_at.astimezone(UTC).replace(tzinfo=None)
+            if expires_at <= _naive_utc_now():
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="expires_at must be in the future",
+                )
+
+        raw, row = self._mint_api_key_row(
+            current_user, body.label, scopes, expires_at
+        )
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+        return self._api_key_out(raw, row)
+
+    def list_api_keys(
+        self,
+        request: Request,
+        db: DBSession = Depends(get_session),
+        current_user: str = Depends(require_current_user),
+    ) -> list[ApiKeyListItem]:
+        """List the caller's API keys (prefixes only — raw values are never
+        stored, so they can't be shown again)."""
+        deny_api_key_auth(request)
+        rows = db.exec(
+            select(ApiKey)
+            .where(ApiKey.user == current_user)
+            .order_by(ApiKey.created_at.desc())
+        ).all()
+        return [
+            ApiKeyListItem(
+                id=r.id,
+                key_prefix=r.key_prefix,
+                label=r.label,
+                scopes=json.loads(r.scopes) if r.scopes else [],
+                created_at=r.created_at,
+                last_used_at=r.last_used_at,
+                revoked_at=r.revoked_at,
+                expires_at=r.expires_at,
+            )
+            for r in rows
+        ]
+
+    def _get_owned_api_key(
+        self, db: DBSession, key_id: str, current_user: str
+    ) -> ApiKey:
+        """Fetch an API key owned by the caller or raise 404.
+
+        Deliberate divergence from the hook-token contract (AUTH-V0 §1(a)
+        returns 401 for a foreign token): foreign API keys 404 so an
+        authenticated user can't probe whether someone else's key id exists.
+        The hook-token endpoint keeps its frozen spec.
+        """
+        row = db.get(ApiKey, key_id)
+        if row is None or row.user != current_user:
+            raise HTTPException(status_code=404, detail="API key not found")
+        return row
+
+    def revoke_api_key(
+        self,
+        key_id: str,
+        request: Request,
+        db: DBSession = Depends(get_session),
+        current_user: str = Depends(require_current_user),
+    ) -> None:
+        """Soft-revoke an API key: set `revoked_at = now()`.
+
+        404 when key_id is unknown OR belongs to another user (no existence
+        oracle — see `_get_owned_api_key`), idempotent 204 when already
+        revoked.
+        """
+        deny_api_key_auth(request)
+        row = self._get_owned_api_key(db, key_id, current_user)
+        if row.revoked_at is None:
+            row.revoked_at = _naive_utc_now()
+            db.add(row)
+            db.commit()
+        return None
+
+    def rotate_api_key(
+        self,
+        key_id: str,
+        request: Request,
+        db: DBSession = Depends(get_session),
+        current_user: str = Depends(require_current_user),
+    ) -> ApiKeyCreateOut:
+        """Rotate an API key: mint a replacement carrying the same label,
+        scopes and absolute expiry, and revoke the old key — one transaction,
+        so there is no window where neither key works. Returns the new raw
+        value **once**.
+
+        409 when the key is already revoked (nothing to rotate — create a
+        new one instead). 404 unknown/foreign, like revoke.
+        """
+        deny_api_key_auth(request)
+        row = self._get_owned_api_key(db, key_id, current_user)
+        if row.revoked_at is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="API key is already revoked — create a new one",
+            )
+
+        raw, new_row = self._mint_api_key_row(
+            current_user,
+            row.label,
+            json.loads(row.scopes) if row.scopes else ["ingest"],
+            row.expires_at,
+        )
+        row.revoked_at = _naive_utc_now()
+        db.add(row)
+        db.add(new_row)
+        db.commit()
+        db.refresh(new_row)
+        return self._api_key_out(raw, new_row)
 
     # ---------- Service tokens (Phase B — headless/CI/fleet) ----------
 

@@ -473,3 +473,33 @@ def test_dedupe_same_rule_twice():
 def test_benign_event_returns_empty_list():
     e = _ev(kind="tool_use", tool="Edit", content="small change", path="README.md")
     assert scan_event(e) == []
+
+
+# ---------- secret_yoru_token ----------
+
+def test_secret_yoru_api_key_positive():
+    e = _ev(
+        kind="tool_use",
+        tool="Bash",
+        content="export YORU_API_KEY=yoru_ak_3q2xJ9dK1mP7wR5tY8uZ0aB4cD6eF2gH",
+    )
+    assert "secret_yoru_token" in scan_event(e)
+
+
+def test_secret_yoru_hook_token_positive():
+    e = _ev(
+        kind="tool_use",
+        tool="Bash",
+        content="curl -H 'Authorization: Bearer rcpt_u_9dK1mP7wR5tY8uZ0aB4cD6eF'",
+    )
+    assert "secret_yoru_token" in scan_event(e)
+
+
+def test_secret_yoru_token_negative_prefix_mentions():
+    # Prose mentions of prefixes / the cookie NAME must not trip the rule.
+    e = _ev(
+        kind="tool_use",
+        tool="Bash",
+        content="tokens use the rcpt_ prefix; the cookie is rcpt_session",
+    )
+    assert "secret_yoru_token" not in scan_event(e)

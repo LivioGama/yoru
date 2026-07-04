@@ -137,6 +137,43 @@ class CliToken(SQLModel, table=True):
 HookToken = CliToken
 
 
+class ApiKey(SQLModel, table=True):
+    """Long-lived API key for headless / CI / programmatic access.
+
+    Unlike hook-tokens (minted via device-code pairing), API keys are minted
+    from an already-authenticated dashboard or CLI-token session and pasted
+    into server config or a CI secret store. The raw value (`yoru_ak_*`) is
+    returned ONCE at creation; only its sha256 persists. `key_prefix` (the 8
+    chars after the prefix) is stored so the UI can identify a key without
+    revealing it. The raw key is a full bearer credential — treat it like a
+    password, never log it.
+
+    Scopes are ENFORCED at resolution (deps._resolve_api_key), not decorative:
+      - 'ingest' → POST /sessions/events only (the CI/runner case, default)
+      - 'read'   → GET/HEAD on the receipt surface
+    Any other verb is refused for API-key callers, which structurally locks
+    them out of credential-minting endpoints; `deny_api_key_auth` remains as
+    defense-in-depth on those endpoints.
+    """
+    __tablename__ = "api_keys"
+
+    id: str = Field(primary_key=True)
+    user: str = Field(index=True)
+    key_hash: str = Field(index=True, unique=True)
+    key_prefix: str = Field(index=True)
+    label: Optional[str] = Field(default=None, max_length=128)
+    scopes: str = Field(default='["ingest"]')  # JSON list ⊆ API_KEY_SCOPES
+    created_at: datetime = Field(default_factory=_utcnow)
+    last_used_at: Optional[datetime] = None
+    revoked_at: Optional[datetime] = None
+    expires_at: Optional[datetime] = None
+
+
+# The only scopes an API key can carry — enforcement lives in
+# deps._resolve_api_key, creation-time validation in auth_router.
+API_KEY_SCOPES: frozenset[str] = frozenset({"ingest", "read"})
+
+
 class DeviceAuthorizationToken(SQLModel, table=True):
     """Transient store for the raw hook-token minted at /device-code/approve.
 
@@ -521,6 +558,35 @@ class ServiceTokenListItem(SQLModel):
     last_used_at: Optional[datetime]
     revoked_at: Optional[datetime]
     minted_by_user_id: Optional[str]
+
+
+# ---------- API keys (long-lived, headless/CI) ----------
+
+class ApiKeyCreateIn(SQLModel):
+    label: Optional[str] = Field(default=None, max_length=128)
+    scopes: Optional[list[str]] = None  # default ['ingest']; ⊆ API_KEY_SCOPES
+    expires_at: Optional[datetime] = None  # optional; must be in the future
+
+
+class ApiKeyCreateOut(SQLModel):
+    key: str  # raw value — returned once, never persisted or logged
+    id: str
+    key_prefix: str
+    label: Optional[str]
+    scopes: list[str]
+    created_at: datetime
+    expires_at: Optional[datetime]
+
+
+class ApiKeyListItem(SQLModel):
+    id: str
+    key_prefix: str
+    label: Optional[str]
+    scopes: list[str]
+    created_at: datetime
+    last_used_at: Optional[datetime]
+    revoked_at: Optional[datetime]
+    expires_at: Optional[datetime]
 
 
 # ---------- Password reset (wave-14 C4) ----------

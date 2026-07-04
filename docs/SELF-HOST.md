@@ -285,6 +285,44 @@ If you run an air-gapped environment where PyPI isn't reachable, mirror the
 wheel from `pip download yoru-cli` into your internal index and install from
 there (still passing `--server`).
 
+### API keys (headless / CI — no browser pairing)
+
+Where the device-code flow is impractical (CI runners, fleet servers), mint a
+long-lived API key from an authenticated dashboard session and send it in the
+`X-API-Key` header:
+
+```bash
+# Mint (from a machine where you're signed in to the dashboard):
+curl -X POST https://yoru.acme.com/api/v1/auth/api-keys \
+  -H 'Content-Type: application/json' \
+  --cookie "rcpt_session=<your session>" \
+  -d '{"label": "ci-runner", "scopes": ["ingest"]}'
+# → returns the raw yoru_ak_* value ONCE. Store it in your CI secret store.
+
+# Use:
+curl -X POST https://yoru.acme.com/api/v1/sessions/events \
+  -H "X-API-Key: $YORU_API_KEY" -H 'Content-Type: application/json' -d @events.json
+```
+
+Rules of the road:
+
+- **The raw key is a full bearer credential.** It is shown once at creation
+  and only its hash is stored — put it in a secrets manager or CI secret, and
+  never in logs, shell history, or a committed file. (Yoru's own `secret`
+  red-flag detector flags `yoru_ak_*` patterns in agent sessions, so a
+  leaked key will light up your dashboard.)
+- **Serve the backend over HTTPS.** The key travels in a header; without TLS
+  in front of the API it is readable on the wire. Same is true of paired CLI
+  tokens.
+- **Scopes are enforced**: `ingest` (default) only allows event POSTs;
+  add `read` for programmatic GETs. API keys can never manage credentials —
+  minting, listing, revoking or rotating keys requires a dashboard session
+  or CLI token.
+- **Rotation**: `POST /api/v1/auth/api-key/{id}/rotate` revokes the old key
+  and returns a replacement (same label/scopes/expiry) in one step.
+  `DELETE /api/v1/auth/api-key/{id}` revokes without replacement. Optional
+  `expires_at` at creation gives keys a hard end-of-life.
+
 ---
 
 ## Verification checklist
