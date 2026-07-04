@@ -1,9 +1,8 @@
 {
-  "name": "overnight-saas",
+  "name": "yoru",
   "private": true,
   "workspaces": [
     "frontend",
-    "marketing",
     "packages/*"
   ],
   "overrides": {

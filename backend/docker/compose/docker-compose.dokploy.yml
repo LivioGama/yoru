@@ -16,7 +16,7 @@ services:
 
   api:
     build:
-      context: .
+      context: ../..
       dockerfile: Dockerfile
     image: yoru-api:latest
     container_name: yoru_api
