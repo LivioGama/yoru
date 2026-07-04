@@ -38,6 +38,10 @@ from .db import get_session
 from .deps import _naive_utc_now, require_current_user
 from .email.welcome import send_welcome_email
 from .models import (
+    ApiKey,
+    ApiKeyCreateIn,
+    ApiKeyCreateOut,
+    ApiKeyListItem,
     CliToken,
     DeviceAuthorization,
     DeviceAuthorizationToken,
@@ -74,6 +78,7 @@ _WELCOME_EMAIL_DEDUPE_WINDOW = timedelta(minutes=5)
 _TOKEN_PREFIX = "rcpt_"           # legacy prefix — still accepted on read
 _USER_TOKEN_PREFIX = "rcpt_u_"    # Phase B: new user-scoped tokens
 _SERVICE_TOKEN_PREFIX = "rcpt_s_" # Phase B: new org/service tokens
+_API_KEY_PREFIX = "yoru_pk_"      # API key prefix for long-lived credentials
 _BEARER_PREFIX = "Bearer "
 _RESET_TOKEN_PREFIX = "rcpt_reset_"
 _RESET_TOKEN_TTL = timedelta(hours=1)
@@ -255,6 +260,20 @@ class AuthRouter:
             "/welcome-email",
             response_model=WelcomeEmailOut,
         )(self.welcome_email)
+        self.router.post(
+            "/api-keys",
+            response_model=ApiKeyCreateOut,
+            status_code=status.HTTP_201_CREATED,
+        )(self.create_api_key)
+        self.router.get(
+            "/api-keys",
+            response_model=list[ApiKeyListItem],
+        )(self.list_api_keys)
+        self.router.delete(
+            "/api-key/{key_id}",
+            status_code=status.HTTP_204_NO_CONTENT,
+            response_model=None,
+        )(self.revoke_api_key)
 
     def mint_token(
         self,
@@ -516,6 +535,96 @@ class AuthRouter:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="token does not belong to caller",
+            )
+        if row.revoked_at is None:
+            row.revoked_at = _naive_utc_now()
+            db.add(row)
+            db.commit()
+        return None
+
+    # ---------- API keys ----------
+
+    def create_api_key(
+        self,
+        body: ApiKeyCreateIn,
+        db: DBSession = Depends(get_session),
+        current_user: str = Depends(require_current_user),
+    ) -> ApiKeyCreateOut:
+        """Create a new API key for the authenticated caller. Raw value
+        is returned **once**; only the sha256 hash is persisted.
+
+        Key format: `yoru_pk_` + 32 random characters. The first 8 characters
+        after the prefix are stored as `key_prefix` for identification.
+        """
+        raw = _API_KEY_PREFIX + secrets.token_urlsafe(32)
+        key_hash = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+        key_prefix = raw[len(_API_KEY_PREFIX):len(_API_KEY_PREFIX) + 8]
+        
+        scopes_json = json.dumps(body.scopes) if body.scopes else None
+        
+        row = ApiKey(
+            id=uuid.uuid4().hex,
+            user=current_user,
+            key_hash=key_hash,
+            key_prefix=key_prefix,
+            label=body.label,
+            scopes=scopes_json,
+            created_at=_naive_utc_now(),
+        )
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+        return ApiKeyCreateOut(
+            key=raw,
+            id=row.id,
+            key_prefix=row.key_prefix,
+            label=row.label,
+            created_at=row.created_at,
+        )
+
+    def list_api_keys(
+        self,
+        db: DBSession = Depends(get_session),
+        current_user: str = Depends(require_current_user),
+    ) -> list[ApiKeyListItem]:
+        """List the caller's API keys."""
+        rows = db.exec(
+            select(ApiKey)
+            .where(ApiKey.user == current_user)
+            .order_by(ApiKey.created_at.desc())
+        ).all()
+        return [
+            ApiKeyListItem(
+                id=r.id,
+                key_prefix=r.key_prefix,
+                label=r.label,
+                scopes=json.loads(r.scopes) if r.scopes else None,
+                created_at=r.created_at,
+                last_used_at=r.last_used_at,
+                revoked_at=r.revoked_at,
+                expires_at=r.expires_at,
+            )
+            for r in rows
+        ]
+
+    def revoke_api_key(
+        self,
+        key_id: str,
+        db: DBSession = Depends(get_session),
+        current_user: str = Depends(require_current_user),
+    ) -> None:
+        """Soft-revoke an API key: set `revoked_at = now()`.
+
+        401 when the key belongs to a different user, 404 when key_id is unknown,
+        idempotent 204 when already revoked.
+        """
+        row = db.get(ApiKey, key_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="API key not found")
+        if row.user != current_user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="API key does not belong to caller",
             )
         if row.revoked_at is None:
             row.revoked_at = _naive_utc_now()

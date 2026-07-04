@@ -137,6 +137,31 @@ class CliToken(SQLModel, table=True):
 HookToken = CliToken
 
 
+class ApiKey(SQLModel, table=True):
+    """Long-lived API key for Yoru CLI and programmatic access.
+
+    Similar to CliToken but designed for long-term credentials that can be
+    manually configured (e.g., in deployment logs, CI configs). The full key
+    is returned once on creation; only the SHA256 hash is persisted.
+
+    Key format: `yoru_pk_` + 32 random characters (safe to display in logs).
+    The first 8 characters after the prefix are stored as `key_prefix` for
+    identification in the UI without revealing the full secret.
+    """
+    __tablename__ = "api_keys"
+
+    id: str = Field(primary_key=True)
+    user: str = Field(index=True)
+    key_hash: str = Field(index=True, unique=True)
+    key_prefix: str = Field(index=True)  # First 8 chars after prefix for identification
+    label: Optional[str] = Field(default=None, max_length=128)
+    scopes: Optional[str] = Field(default=None)  # JSON: ['events:write', ...]
+    created_at: datetime = Field(default_factory=_utcnow)
+    last_used_at: Optional[datetime] = None
+    revoked_at: Optional[datetime] = None
+    expires_at: Optional[datetime] = None
+
+
 class DeviceAuthorizationToken(SQLModel, table=True):
     """Transient store for the raw hook-token minted at /device-code/approve.
 
@@ -521,6 +546,32 @@ class ServiceTokenListItem(SQLModel):
     last_used_at: Optional[datetime]
     revoked_at: Optional[datetime]
     minted_by_user_id: Optional[str]
+
+
+# ---------- API keys ----------
+
+class ApiKeyCreateIn(SQLModel):
+    label: Optional[str] = Field(default=None, max_length=128)
+    scopes: Optional[list[str]] = Field(default=None)
+
+
+class ApiKeyCreateOut(SQLModel):
+    key: str
+    id: str
+    key_prefix: str
+    label: Optional[str]
+    created_at: datetime
+
+
+class ApiKeyListItem(SQLModel):
+    id: str
+    key_prefix: str
+    label: Optional[str]
+    scopes: Optional[list[str]]
+    created_at: datetime
+    last_used_at: Optional[datetime]
+    revoked_at: Optional[datetime]
+    expires_at: Optional[datetime]
 
 
 # ---------- Password reset (wave-14 C4) ----------

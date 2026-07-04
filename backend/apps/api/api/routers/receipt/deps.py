@@ -25,10 +25,12 @@ from sqlmodel import Session as DBSession, select
 from apps.api.api.dependencies.auth import SESSION_COOKIE_NAME
 
 from .db import get_session
-from .models import HookToken
+from .models import ApiKey, HookToken
 
 _BEARER_PREFIX = "Bearer "
 _TOKEN_PREFIX = "rcpt_"  # Matches both legacy `rcpt_*` and new `rcpt_u_*` / `rcpt_s_*`.
+_API_KEY_PREFIX = "yoru_pk_"  # API key prefix for long-lived credentials
+_API_KEY_HEADER = "X-API-Key"
 
 
 def _naive_utc_now() -> datetime:
@@ -73,6 +75,43 @@ def _resolve_token(authorization: str, session: DBSession) -> str:
     return row.user
 
 
+def _resolve_api_key(api_key: str, session: DBSession) -> str:
+    """Parse 'yoru_pk_...' API key and return the bound user or raise 401.
+
+    Side-effect: updates `last_used_at` (naive UTC) on the matched row.
+    """
+    if not api_key.startswith(_API_KEY_PREFIX):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="invalid API key format",
+        )
+
+    key_hash = hashlib.sha256(api_key.encode("utf-8")).hexdigest()
+    row = session.exec(
+        select(ApiKey).where(
+            ApiKey.key_hash == key_hash,
+            ApiKey.revoked_at.is_(None),  # type: ignore[union-attr]
+        )
+    ).first()
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="invalid or revoked API key",
+        )
+    
+    # Check expiration
+    if row.expires_at is not None and row.expires_at < _naive_utc_now():
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="API key has expired",
+        )
+    
+    row.last_used_at = _naive_utc_now()
+    session.add(row)
+    session.commit()
+    return row.user
+
+
 def _resolve_from_cookie(request: Request) -> str | None:
     """Resolve the dashboard session cookie (`rcpt_session`, Supabase JWT) to a
     user email string. Returns None if no cookie is present; raises 401 if the
@@ -101,28 +140,35 @@ def _resolve_from_cookie(request: Request) -> str | None:
 def get_current_user(
     request: Request,
     authorization: str | None = Header(default=None),
+    x_api_key: str | None = Header(default=None, alias=_API_KEY_HEADER),
     session: DBSession = Depends(get_session),
 ) -> str | None:
     """Optional auth — returns the user email or None when no creds.
 
     Resolution order:
       1. `Authorization: Bearer rcpt_*`  (CLI hook-token flow)
-      2. `rcpt_session` cookie (Supabase JWT, dashboard flow)
-      3. None (v0 backward-compat for ingest fallback to `EventIn.user`)
+      2. `X-API-Key: yoru_pk_*` (API key flow)
+      3. `rcpt_session` cookie (Supabase JWT, dashboard flow)
+      4. None (v0 backward-compat for ingest fallback to `EventIn.user`)
     """
     if authorization is not None:
         return _resolve_token(authorization, session)
+    if x_api_key is not None:
+        return _resolve_api_key(x_api_key, session)
     return _resolve_from_cookie(request)
 
 
 def require_current_user(
     request: Request,
     authorization: str | None = Header(default=None),
+    x_api_key: str | None = Header(default=None, alias=_API_KEY_HEADER),
     session: DBSession = Depends(get_session),
 ) -> str:
-    """Strict auth — 401 if neither bearer header nor session cookie resolves."""
+    """Strict auth — 401 if bearer header, API key, or session cookie don't resolve."""
     if authorization is not None:
         return _resolve_token(authorization, session)
+    if x_api_key is not None:
+        return _resolve_api_key(x_api_key, session)
     user = _resolve_from_cookie(request)
     if user is None:
         raise HTTPException(
