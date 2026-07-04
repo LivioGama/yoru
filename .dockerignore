@@ -1,10 +1,23 @@
-# The only builds that use the REPO ROOT as their Docker context are the
-# install-smoke clean rooms (install-smoke/*.Dockerfile), and they only need
-# install-smoke/. Everything else (the 5GB+ of backend/data/*.db, node_modules,
-# .worktrees, build output, .git) would just bloat the context — and a live
-# SQLite file mid-write even breaks the tar. Keep the context tiny + deterministic.
+# Two build families use the REPO ROOT as their Docker context:
+#   - install-smoke clean rooms (install-smoke/*.Dockerfile) — need install-smoke/
+#   - the dashboard image (frontend/Dockerfile) — needs the npm workspace
+#     manifests + packages/ + frontend/ sources
+# Everything else (the 5GB+ of backend/data/*.db, node_modules, .worktrees,
+# build output, .git) would just bloat the context — and a live SQLite file
+# mid-write even breaks the tar. Keep the context tiny + deterministic.
+# marketing/ stays excluded: frontend/Dockerfile prunes missing workspaces, so
+# the dev tree builds the same way the filtered public mirror does.
+# A `.dockerignore` only applies at the CONTEXT root — per-directory copies
+# would be inert — so this file is the single gate for root-context builds.
 #
 # Note: the backend image builds from `./backend` context (see docker-compose.yml),
 # NOT the repo root, so this file does not affect it.
 *
 !install-smoke
+!package.json
+!package-lock.json
+!packages
+!frontend
+**/node_modules
+frontend/dist
+frontend/.env*
