@@ -71,6 +71,10 @@ COPY --from=builder --chown=appuser:appuser /opt/venv /opt/venv
 COPY --chown=appuser:appuser apps /app/apps
 COPY --chown=appuser:appuser libs /app/libs
 
+# Copy entrypoint script for auto-fixing volume permissions
+COPY --chown=appuser:appuser scripts/entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
 USER appuser
 
 EXPOSE 8002
@@ -81,4 +85,4 @@ HEALTHCHECK --interval=30s --timeout=5s --retries=3 --start-period=10s \
     CMD python -c "import urllib.request,sys; \
 sys.exit(0) if urllib.request.urlopen('http://127.0.0.1:8002/health', timeout=3).status == 200 else sys.exit(1)"
 
-CMD ["uvicorn", "apps.api.main:app", "--host", "0.0.0.0", "--port", "8002"]
+CMD ["/app/entrypoint.sh"]
