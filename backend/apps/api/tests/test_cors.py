@@ -86,3 +86,36 @@ def test_default_allowlist_permits_vite_dev_origin() -> None:
         )
     assert resp.status_code == 200, resp.text
     assert resp.headers.get("Access-Control-Allow-Origin") == "http://localhost:5173"
+
+
+def test_csrf_rejection_from_allowed_origin_is_echoed() -> None:
+    app = _rebuild_app("https://allowed.example")
+    with TestClient(app) as client:
+        resp = client.post(
+            "/api/v1/auth/device-code/approve",
+            json={"user_code": "TEST-TEST"},
+            headers={
+                "Origin": "https://allowed.example",
+                "X-CSRF-Token": "wrong",
+                "Cookie": "rcpt_session=dummy; rcpt_csrf=right",
+            },
+        )
+    assert resp.status_code == 403
+    assert resp.headers.get("Access-Control-Allow-Origin") == "https://allowed.example"
+    assert resp.headers.get("Access-Control-Allow-Credentials") == "true"
+
+
+def test_setup_init_ignores_stale_session_cookie_for_csrf() -> None:
+    app = _rebuild_app("https://allowed.example")
+    with TestClient(app) as client:
+        resp = client.post(
+            "/api/v1/setup/init",
+            json={"admin_email": "setup@example.com", "admin_password": "password123"},
+            headers={
+                "Origin": "https://allowed.example",
+                "X-CSRF-Token": "wrong",
+                "Cookie": "rcpt_session=dummy; rcpt_csrf=right",
+            },
+        )
+    assert resp.status_code != 403
+    assert resp.headers.get("Access-Control-Allow-Origin") == "https://allowed.example"

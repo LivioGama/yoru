@@ -30,6 +30,8 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
 
+from apps.api.api.core.errors import configured_cors_origins
+
 SESSION_COOKIE = "rcpt_session"
 CSRF_COOKIE = "rcpt_csrf"
 CSRF_HEADER = "x-csrf-token"
@@ -52,6 +54,15 @@ class CsrfMiddleware(BaseHTTPMiddleware):
         super().__init__(app)
         self._extra_exempt = tuple(exempt_prefixes)
 
+    def _forbidden(self, request: Request, detail: str) -> JSONResponse:
+        response = JSONResponse({"detail": detail}, status_code=403)
+        origin = request.headers.get("origin")
+        if origin and origin in configured_cors_origins():
+            response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Access-Control-Allow-Credentials"] = "true"
+            response.headers["Vary"] = "Origin"
+        return response
+
     async def dispatch(self, request: Request, call_next):
         if request.method in SAFE_METHODS:
             return await call_next(request)
@@ -71,15 +82,9 @@ class CsrfMiddleware(BaseHTTPMiddleware):
         header_token = request.headers.get(CSRF_HEADER, "")
 
         if not cookie_token or not header_token:
-            return JSONResponse(
-                {"detail": "CSRF token missing"},
-                status_code=403,
-            )
+            return self._forbidden(request, "CSRF token missing")
 
         if not hmac.compare_digest(cookie_token, header_token):
-            return JSONResponse(
-                {"detail": "CSRF token mismatch"},
-                status_code=403,
-            )
+            return self._forbidden(request, "CSRF token mismatch")
 
         return await call_next(request)

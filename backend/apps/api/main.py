@@ -184,6 +184,7 @@ app.add_middleware(
     CsrfMiddleware,
     exempt_prefixes=[
         "/api/v1/sessions/events",      # CLI hook-token ingest, bearer auth
+        "/api/v1/setup",                # first-run wizard runs before auth exists
         "/api/v1/billing/webhook",      # Polar webhook, signature-authenticated
         "/api/v1/sales/contact",        # public form from marketing/, honeypot + rate-limit
     ],

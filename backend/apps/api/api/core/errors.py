@@ -19,6 +19,7 @@ unhandled Exception (500, traceback logged server-side).
 """
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
@@ -43,9 +44,44 @@ _STATUS_TO_CODE: dict[int, str] = {
     503: "SERVICE_UNAVAILABLE",
 }
 
+_DEFAULT_CORS_ALLOWED_ORIGINS = (
+    "http://localhost:5173,http://localhost:5174,http://localhost:3000"
+)
+
 
 def _code_for_status(status: int) -> str:
     return _STATUS_TO_CODE.get(status, f"HTTP_{status}")
+
+
+def configured_cors_origins() -> list[str]:
+    """Return the browser origins allowed by the API deployment."""
+    return [
+        origin.strip()
+        for origin in os.environ.get(
+            "CORS_ALLOWED_ORIGINS",
+            _DEFAULT_CORS_ALLOWED_ORIGINS,
+        ).split(",")
+        if origin.strip()
+    ]
+
+
+def _cors_headers_for_request(request: Request | None) -> dict[str, str]:
+    """CORS headers for responses produced outside CORSMiddleware.
+
+    FastAPI/Starlette's server-error layer can build unhandled 500 responses
+    outside the normal CORS middleware path. Without these headers, browsers
+    report a generic CORS failure instead of exposing the real error status.
+    """
+    if request is None:
+        return {}
+    origin = request.headers.get("origin")
+    if not origin or origin not in configured_cors_origins():
+        return {}
+    return {
+        "Access-Control-Allow-Origin": origin,
+        "Access-Control-Allow-Credentials": "true",
+        "Vary": "Origin",
+    }
 
 
 class AppError(HTTPException):
@@ -109,6 +145,7 @@ def envelope(
     }
     resp = JSONResponse(status_code=status, content=body)
     resp.headers["X-Request-ID"] = rid
+    resp.headers.update(_cors_headers_for_request(request))
     return resp
 
 
@@ -191,6 +228,7 @@ def install_error_handlers(app: FastAPI) -> None:
 
 __all__ = [
     "AppError",
+    "configured_cors_origins",
     "envelope",
     "generic_exception_handler",
     "http_exception_handler",
